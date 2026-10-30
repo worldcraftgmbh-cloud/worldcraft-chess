@@ -11,6 +11,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { WebSocketServer, WebSocket } = require('ws');
 
 const ChessEngine = require('../public/engine/chess.js');
@@ -32,6 +33,18 @@ const MIME_TYPES = {
 
 const eloSystem = new EloSystem();
 
+function getLocalIpAddress() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const net of interfaces[name]) {
+      if (net.family === 'IPv4' && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return 'localhost';
+}
+
 // HTTP Server for static assets and REST API
 const server = http.createServer((req, res) => {
   const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
@@ -45,6 +58,30 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  // Network info endpoint (provides LAN IP for sharing links across PCs)
+  if (pathname === '/api/network-info') {
+    const localIp = getLocalIpAddress();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ localIp, port: PORT }));
+    return;
+  }
+
+  // Room status endpoint (allows invited friend to see host name before joining)
+  if (pathname.startsWith('/api/room/')) {
+    const rId = pathname.substring('/api/room/'.length).toUpperCase();
+    const room = rooms.get(rId);
+    if (!room) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ exists: false, message: 'Raum existiert nicht oder ist abgelaufen.' }));
+      return;
+    }
+    const hostName = room.white?.name || room.black?.name || 'Dein Freund';
+    const isFull = !!(room.white && room.black);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ exists: true, roomId: rId, hostName, isFull }));
     return;
   }
 

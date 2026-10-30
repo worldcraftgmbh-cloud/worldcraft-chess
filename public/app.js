@@ -574,10 +574,24 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // 7. Multiplayer Handlers & Invite Link Sharing
+  let serverLanHost = window.location.host;
+  fetch('/api/network-info').then(r => r.json()).then(data => {
+    if (data.localIp && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      serverLanHost = `${data.localIp}:${data.port || window.location.port || 3000}`;
+    }
+  }).catch(() => {});
+
+  function generateInviteUrl(code) {
+    const cleanCode = (code || '').trim().toUpperCase();
+    const protocol = window.location.protocol;
+    const path = window.location.pathname;
+    return `${protocol}//${serverLanHost}${path}?room=${cleanCode}`;
+  }
+
   function copyInviteLink(code, btnEl, textEl) {
     const cleanCode = (code || '').trim().toUpperCase();
     if (!cleanCode) return;
-    const fullUrl = `${window.location.origin}${window.location.pathname}?room=${cleanCode}`;
+    const fullUrl = generateInviteUrl(cleanCode);
     navigator.clipboard.writeText(fullUrl).then(() => {
       if (btnEl) btnEl.classList.add('copied');
       if (textEl) textEl.innerText = '✓ Link kopiert!';
@@ -589,6 +603,134 @@ document.addEventListener('DOMContentLoaded', () => {
       prompt('Kopiere diesen Einladungs-Link für deinen Freund:', fullUrl);
     });
   }
+
+  // Warteraum / Room Lobby Modal für den Host
+  const roomLobbyModal = document.getElementById('roomLobbyModal');
+  const lobbyRoomCodeEl = document.getElementById('lobbyRoomCode');
+  const lobbyInviteUrlInput = document.getElementById('lobbyInviteUrlInput');
+  const btnLobbyCopyLink = document.getElementById('btnLobbyCopyLink');
+  const btnLobbyCancel = document.getElementById('btnLobbyCancel');
+
+  function openRoomLobbyModal(roomId) {
+    if (!roomLobbyModal) return;
+    const cleanCode = (roomId || '').trim().toUpperCase();
+    if (lobbyRoomCodeEl) lobbyRoomCodeEl.innerText = cleanCode;
+    const inviteUrl = generateInviteUrl(cleanCode);
+    if (lobbyInviteUrlInput) lobbyInviteUrlInput.value = inviteUrl;
+
+    // Auto copy invite link for maximum comfort!
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      if (btnLobbyCopyLink) {
+        btnLobbyCopyLink.classList.add('copied');
+        btnLobbyCopyLink.innerText = '✓ Kopiert!';
+        setTimeout(() => {
+          btnLobbyCopyLink.classList.remove('copied');
+          btnLobbyCopyLink.innerText = '📋 Kopieren';
+        }, 3500);
+      }
+    }).catch(() => {});
+
+    renderer.isLocked = true;
+    stopClocks();
+    closeGameStartModal();
+    roomLobbyModal.classList.add('active');
+  }
+
+  function closeRoomLobbyModal() {
+    if (roomLobbyModal) roomLobbyModal.classList.remove('active');
+  }
+
+  btnLobbyCopyLink?.addEventListener('click', () => {
+    const url = lobbyInviteUrlInput?.value || generateInviteUrl(lobbyRoomCodeEl?.innerText);
+    navigator.clipboard.writeText(url).then(() => {
+      btnLobbyCopyLink.classList.add('copied');
+      btnLobbyCopyLink.innerText = '✓ Kopiert!';
+      setTimeout(() => {
+        btnLobbyCopyLink.classList.remove('copied');
+        btnLobbyCopyLink.innerText = '📋 Kopieren';
+      }, 3500);
+    }).catch(() => {
+      prompt('Kopiere diesen Link für deinen Kumpel:', url);
+    });
+  });
+
+  btnLobbyCancel?.addEventListener('click', () => {
+    closeRoomLobbyModal();
+    renderer.isLocked = false;
+    openGameStartModal('friend');
+  });
+
+  // Einladungs-Modal für den Kumpel (wenn er den Link öffnet)
+  const friendJoinModal = document.getElementById('friendJoinModal');
+  const friendJoinSubtitle = document.getElementById('friendJoinSubtitle');
+  const friendJoinRoomCodeDisplay = document.getElementById('friendJoinRoomCodeDisplay');
+  const friendJoinHostNameDisplay = document.getElementById('friendJoinHostNameDisplay');
+  const friendChosenNameInput = document.getElementById('friendChosenNameInput');
+  const btnConfirmJoinGame = document.getElementById('btnConfirmJoinGame');
+  let pendingFriendRoomCode = null;
+
+  async function openFriendJoinModal(roomCode) {
+    if (!friendJoinModal) return;
+    pendingFriendRoomCode = roomCode.trim().toUpperCase();
+    if (friendJoinRoomCodeDisplay) friendJoinRoomCodeDisplay.innerText = pendingFriendRoomCode;
+
+    // Prefill name with existing non-admin name, or blank for new player
+    if (friendChosenNameInput) {
+      friendChosenNameInput.value = state.currentUser.name !== 'Jeremy' ? state.currentUser.name : '';
+    }
+
+    renderer.isLocked = true;
+    stopClocks();
+    closeGameStartModal();
+    closeRoomLobbyModal();
+    friendJoinModal.classList.add('active');
+
+    // Fetch room host name from server
+    try {
+      const res = await fetch(`/api/room/${pendingFriendRoomCode}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.exists && data.hostName) {
+          if (friendJoinSubtitle) {
+            friendJoinSubtitle.innerHTML = `<strong>${data.hostName}</strong> hat dich zu einer Schach-Partie herausgefordert!`;
+          }
+          if (friendJoinHostNameDisplay) {
+            friendJoinHostNameDisplay.innerText = `${data.hostName} (⚪ Weiß)`;
+          }
+        }
+      }
+    } catch (e) {
+      // offline / local fallback
+    }
+
+    setTimeout(() => friendChosenNameInput?.focus(), 150);
+  }
+
+  function closeFriendJoinModal() {
+    if (friendJoinModal) friendJoinModal.classList.remove('active');
+  }
+
+  btnConfirmJoinGame?.addEventListener('click', () => {
+    const chosenName = (friendChosenNameInput?.value || '').trim() || 'Kumpel_Schwarz';
+    updateUserName(chosenName);
+    btnConfirmJoinGame.disabled = true;
+    btnConfirmJoinGame.innerText = 'Verbinde mit Partie...';
+
+    state.gameMode = 'multiplayer';
+    const modeSelect = document.getElementById('gameModeSelect');
+    if (modeSelect) modeSelect.value = 'multiplayer';
+    document.getElementById('aiSettingsBox').style.display = 'none';
+    document.getElementById('multiSettingsBox').style.display = 'block';
+
+    const joinCode = pendingFriendRoomCode || (document.getElementById('joinRoomInput')?.value || '').trim().toUpperCase();
+    socket.joinRoom(joinCode, null, chosenName);
+  });
+
+  friendChosenNameInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      btnConfirmJoinGame?.click();
+    }
+  });
 
   function handleRoomCreated(data) {
     const codeEl = document.getElementById('displayRoomCode');
@@ -610,11 +752,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('aiSettingsBox').style.display = 'none';
     document.getElementById('multiSettingsBox').style.display = 'block';
 
-    // Auto copy invite link for convenience!
-    copyInviteLink(data.roomId, document.getElementById('btnCopyInviteLink'), document.getElementById('copyInviteText'));
+    // Open dedicated Room Lobby Modal for the host!
+    openRoomLobbyModal(data.roomId);
 
     if (statusEl) {
-      statusEl.innerHTML = `🟢 <strong>Raum ${data.roomId} erstellt!</strong> Link wurde in die Zwischenablage kopiert. Sende ihn deinem Freund!`;
+      statusEl.innerHTML = `🟢 <strong>Raum ${data.roomId} eröffnet!</strong> Warte auf Mitspieler...`;
     }
   }
 
@@ -628,7 +770,16 @@ document.addEventListener('DOMContentLoaded', () => {
     state.gameMode = 'multiplayer';
     renderer.options.flipped = (state.playerColor === 'b');
     renderer.isLocked = false;
+
+    // Close all waiting modals!
     closeGameStartModal();
+    closeRoomLobbyModal();
+    closeFriendJoinModal();
+
+    if (btnConfirmJoinGame) {
+      btnConfirmJoinGame.disabled = false;
+      btnConfirmJoinGame.innerText = '⚔️ Partie jetzt beitreten';
+    }
 
     // Determine my data vs opponent data
     const isMeWhite = state.playerColor === 'w';
@@ -978,6 +1129,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') {
       closeRulebook();
       closeGameStartModal();
+      closeRoomLobbyModal();
+      closeFriendJoinModal();
       document.getElementById('promotionModal')?.classList.remove('active');
       document.getElementById('gameOverModal')?.classList.remove('active');
     }
@@ -1087,34 +1240,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (friendRoomCode) {
     const cleanCode = friendRoomCode.trim().toUpperCase();
-    state.gameMode = 'multiplayer';
-    const modeSelect = document.getElementById('gameModeSelect');
-    if (modeSelect) modeSelect.value = 'multiplayer';
-    document.getElementById('aiSettingsBox').style.display = 'none';
-    document.getElementById('multiSettingsBox').style.display = 'block';
-
     const joinRoomInput = document.getElementById('joinRoomInput');
     if (joinRoomInput) joinRoomInput.value = cleanCode;
 
-    const statusEl = document.getElementById('multiStatus');
-    if (statusEl) {
-      statusEl.innerHTML = `⏳ <strong>Trete Raum ${cleanCode} bei...</strong> Warte auf Verbindung mit deinem Freund!`;
-    }
-
-    const doJoin = () => {
-      const pName = state.currentUser.name || 'Gastspieler';
-      socket.joinRoom(cleanCode, null, pName);
-    };
-
-    if (socket.isConnected) {
-      doJoin();
-    } else {
-      const origOnConnect = socket.callbacks.onConnect;
-      socket.callbacks.onConnect = () => {
-        if (origOnConnect) origOnConnect();
-        doJoin();
-      };
-    }
+    // Open dedicated Friend Join Modal so the friend can choose their own player name!
+    openFriendJoinModal(cleanCode);
   } else {
     // Normal launch: open clean start modal
     openGameStartModal('ai');

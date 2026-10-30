@@ -1041,6 +1041,16 @@ body {
   color: #81C784 !important;
 }
 
+.btn-primary.copied {
+  background: linear-gradient(135deg, #10B981, #059669) !important;
+  color: #FFFFFF !important;
+}
+
+.modal-room-lobby, .modal-friend-join {
+  border: 1.5px solid var(--accent-gold) !important;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, 0.8), 0 0 30px rgba(214, 168, 79, 0.25) !important;
+}
+
 .admin-mode-grid {
   display: grid;
   grid-template-columns: 1fr 1.35fr;

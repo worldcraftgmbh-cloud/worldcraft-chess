@@ -465,6 +465,79 @@
     </div>
   </div>
 
+  <!-- Modal 0.1: Warteraum / Raum-Lobby für den Host -->
+  <div class="modal-overlay" id="roomLobbyModal">
+    <div class="modal-box modal-room-lobby" style="max-width: 500px; text-align: center;">
+      <div style="font-size: 2.2rem; margin-bottom: 6px;">👑</div>
+      <div class="modal-title" style="margin-bottom: 4px;">Dein Schach-Raum ist eröffnet!</div>
+      <div class="modal-subtitle" style="margin-bottom: 16px;">
+        Sende den Link deinem Freund auf seinem PC. Sobald er beitritt, startet das Match!
+      </div>
+
+      <div style="background: rgba(0,0,0,0.35); border: 1.5px solid var(--accent-gold); border-radius: 10px; padding: 14px; margin-bottom: 16px;">
+        <span style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; display: block; margin-bottom: 4px;">Raum-Code</span>
+        <div id="lobbyRoomCode" style="font-size: 2.2rem; font-weight: 800; letter-spacing: 5px; color: var(--accent-gold);">------</div>
+      </div>
+
+      <div class="form-group" style="text-align: left; margin-bottom: 14px;">
+        <label class="form-label">Einladungs-Link (für Mitspieler auf anderem PC):</label>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" class="input-custom" id="lobbyInviteUrlInput" readonly style="font-size: 0.8rem; color: #FFF; background: rgba(0,0,0,0.4);" value="">
+          <button class="btn-primary" id="btnLobbyCopyLink" style="width: auto; padding: 0 18px; white-space: nowrap; font-weight: 700; background: linear-gradient(135deg, #D6A84F, #B8860B); color: #000;">
+            📋 Kopieren
+          </button>
+        </div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 5px;" id="lobbyLanHint">
+          💡 Funktioniert auf jedem PC im gleichen WLAN oder über das Netzwerk.
+        </div>
+      </div>
+
+      <div style="background: rgba(214, 168, 79, 0.08); border: 1px dashed rgba(214, 168, 79, 0.35); border-radius: 8px; padding: 12px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 10px;">
+        <div class="status-dot" style="animation: pulse 1.2s infinite; background: #A3E635; box-shadow: 0 0 10px #A3E635;"></div>
+        <span style="font-size: 0.85rem; font-weight: 600; color: #F2ECDB;">Warte auf Mitspieler...</span>
+      </div>
+
+      <div style="display: flex; gap: 10px;">
+        <button class="btn-secondary" id="btnLobbyCancel" style="flex: 1;">Partie abbrechen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 0.2: Einladung beitreten für den Kumpel (auf seinem PC) -->
+  <div class="modal-overlay" id="friendJoinModal">
+    <div class="modal-box modal-friend-join" style="max-width: 480px; text-align: center;">
+      <div style="font-size: 2.4rem; margin-bottom: 6px;">⚔️</div>
+      <div class="modal-title" style="margin-bottom: 4px;">Schach-Herausforderung!</div>
+      <div class="modal-subtitle" style="margin-bottom: 16px;" id="friendJoinSubtitle">
+        Du wurdest zu einer Online-Partie eingeladen.
+      </div>
+
+      <div style="background: rgba(0,0,0,0.3); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 14px; margin-bottom: 16px; text-align: left;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Raum-Code:</span>
+          <strong id="friendJoinRoomCodeDisplay" style="color: var(--accent-gold); letter-spacing: 2px; font-size: 1.1rem;">------</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Dein Gegner:</span>
+          <strong id="friendJoinHostNameDisplay" style="color: #FFF; font-size: 0.95rem;">Host (Weiß)</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Deine Spielfarbe:</span>
+          <strong style="color: #B8A898; font-size: 0.95rem;">⚫ Schwarz (Brett automatisch gedreht)</strong>
+        </div>
+      </div>
+
+      <div class="form-group" style="text-align: left; margin-bottom: 16px;">
+        <label class="form-label" style="font-size: 0.88rem; font-weight: 700; color: var(--accent-gold);">Wähle deinen Spielernamen:</label>
+        <input type="text" class="input-custom" id="friendChosenNameInput" placeholder="z. B. Florian, Max, Meister..." style="font-size: 1rem; font-weight: 600; padding: 10px;" value="">
+      </div>
+
+      <button class="btn-primary" id="btnConfirmJoinGame" style="width: 100%; font-size: 1rem; font-weight: 700; padding: 12px; background: linear-gradient(135deg, #D6A84F, #B8860B); color: #000;">
+        ⚔️ Partie jetzt beitreten
+      </button>
+    </div>
+  </div>
+
   <!-- Modal 1: Pawn Promotion Selection -->
   <div class="modal-overlay" id="promotionModal">
     <div class="modal-box">
