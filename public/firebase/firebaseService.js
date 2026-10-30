@@ -161,9 +161,11 @@
 
     /**
      * Calculates an Attack Priority Score for a given legal move:
-     * - Priorität 1: Züge, die Schach bieten oder gegnerische Figuren schlagen.
-     * - Priorität 2: Züge, die Figuren in die gegnerische Spielfeldhälfte vorrücken (Raumgewinn).
-     * - Priorität 3: Bauernumwandlung aktiv forcieren.
+     * - Taktische Matt-Suchfunktion: Sofort-Matt (+50000), unausweichliches Matt in 2 (+25000)
+     * - Malus für Patt (-100000) und 3-fache Wiederholung (-50000) bei Materialvorteil
+     * - Freibauern unaufhaltsam vorrücken (+800 bis +3500)
+     * - Gegnerischen König an den Brettrand drängen (Mattnetz zuziehen)
+     * - Endspiel-Resilienz bei Figurenunterzahl
      */
     calculateAttackBonus(game, move) {
       if (!game || !move) return 0;
@@ -173,88 +175,189 @@
 
       const fromRow = Math.floor(move.from / 8);
       const toRow = Math.floor(move.to / 8);
+      const fromCol = move.from % 8;
+      const toCol = move.to % 8;
 
-      // 1. Priorität 1: Schach bieten (Check)
+      // 1. Material- & Figuren-Inventur
+      const pieceValTable = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
+      let myMaterial = 0;
+      let oppMaterial = 0;
+      let myKingSq = -1;
+      let oppKingSq = -1;
+      let ownPieceCount = 0;
+
+      if (Array.isArray(game.board)) {
+        for (let sq = 0; sq < 64; sq++) {
+          const p = game.board[sq];
+          if (p) {
+            const val = pieceValTable[p.type] || 0;
+            if (p.color === turn) {
+              myMaterial += val;
+              ownPieceCount++;
+              if (p.type === 'k') myKingSq = sq;
+            } else {
+              oppMaterial += val;
+              if (p.type === 'k') oppKingSq = sq;
+            }
+          }
+        }
+      }
+      const hasMaterialAdvantage = (myMaterial > oppMaterial + 100);
+
+      // 2. Taktische Stellungsanalyse nach Zugaussicht
       let givesCheck = false;
+      let isImmediateMate = false;
+      let isImmediateStalemate = false;
+      let isForcedMateIn2 = false;
+      let isThreefoldRepetition = false;
+
       if (typeof game.makeMoveDirect === 'function' && typeof game.unmakeMoveDirect === 'function') {
         const state = game.makeMoveDirect(move);
+        const oppLegalMoves = game.generateLegalMoves(oppColor);
         givesCheck = Boolean(typeof game.isInCheck === 'function' && game.isInCheck(oppColor));
-        game.unmakeMoveDirect(state);
-      }
-      if (givesCheck) {
-        score += 1000;
-      }
 
-      // Priorität 1: Gegners Figuren schlagen (Capture)
-      if (move.captured || move.isEnPassant) {
-        score += 800;
-        const capturedType = move.captured ? (move.captured.type || '').toLowerCase() : 'p';
-        const pieceValues = { q: 90, r: 50, b: 35, n: 35, p: 15, k: 0 };
-        score += (pieceValues[capturedType] || 15) * 5;
-      }
-
-      // 2. Priorität 3: Bauernumwandlung aktiv forcieren
-      if (move.promotion) {
-        score += 1200; // Unmittelbare Damen-Beförderung
-      } else if (move.piece && move.piece.type === 'p') {
-        // Bauer rückt tief vor
-        if (turn === 'w') {
-          if (toRow === 1) score += 600; // 7. Reihe
-          else if (toRow === 2) score += 300; // 6. Reihe
-        } else {
-          if (toRow === 6) score += 600; // 2. Reihe
-          else if (toRow === 5) score += 300; // 3. Reihe
-        }
-      }
-
-      // 3. Priorität 2: Züge, die Figuren in die gegnerische Spielfeldhälfte vorrücken (Raumgewinn)
-      const isInOpponentHalf = (turn === 'w') ? (toRow <= 3) : (toRow >= 4);
-      if (isInOpponentHalf) {
-        score += 250;
-      }
-
-      const forwardAdvancement = (turn === 'w') ? (fromRow - toRow) : (toRow - fromRow);
-      if (forwardAdvancement > 0) {
-        score += forwardAdvancement * 60;
-      }
-
-      // 4. Endspiel-Resilienz (1–2 eigene Figuren übrig): Niemals aufgeben, aktiv um Patt & Remis kämpfen!
-      let ownPieceCount = 0;
-      if (Array.isArray(game.board)) {
-        for (let i = 0; i < 64; i++) {
-          const p = game.board[i];
-          if (p && p.color === turn) ownPieceCount++;
-        }
-      }
-
-      if (ownPieceCount <= 2) {
-        // A: Schlagen gegnerischer Figuren hat hohe Priorität (Material vernichten / Matt verhindern)
-        if (move.captured || move.isEnPassant) {
-          score += 1500;
+        if (givesCheck && oppLegalMoves.length === 0) {
+          isImmediateMate = true;
+        } else if (!givesCheck && oppLegalMoves.length === 0) {
+          isImmediateStalemate = true;
         }
 
-        // B: Niemals freiwillig in ein gegnerisches 1-Zug-Matt laufen, wenn Alternativen überleben!
-        if (typeof game.makeMoveDirect === 'function' && typeof game.unmakeMoveDirect === 'function') {
-          const st = game.makeMoveDirect(move);
-          const oppMoves = game.generateLegalMoves(oppColor);
-          let opponentHasMate = false;
-          for (let oi = 0; oi < oppMoves.length; oi++) {
-            const oppSt = game.makeMoveDirect(oppMoves[oi]);
-            if (game.isInCheck(turn) && game.generateLegalMoves(turn).length === 0) {
-              opponentHasMate = true;
-              game.unmakeMoveDirect(oppSt);
+        if (typeof game.isThreefoldRepetition === 'function' && game.isThreefoldRepetition()) {
+          isThreefoldRepetition = true;
+        }
+
+        // Taktische 2-Zug Matt-Suche: Wenn Schach gegeben wird, prüfe ob jeder gegnerische Ausweg zum Sofort-Matt führt
+        if (givesCheck && oppLegalMoves.length > 0 && oppLegalMoves.length <= 6) {
+          let allRepliesLeadToMate = true;
+          for (let oi = 0; oi < oppLegalMoves.length; oi++) {
+            const oppState = game.makeMoveDirect(oppLegalMoves[oi]);
+            const followups = game.generateLegalMoves(turn);
+            let hasImmediateMateFollowup = false;
+            for (let fi = 0; fi < followups.length; fi++) {
+              const fState = game.makeMoveDirect(followups[fi]);
+              if (game.isInCheck(oppColor) && game.generateLegalMoves(oppColor).length === 0) {
+                hasImmediateMateFollowup = true;
+                game.unmakeMoveDirect(fState);
+                break;
+              }
+              game.unmakeMoveDirect(fState);
+            }
+            game.unmakeMoveDirect(oppState);
+            if (!hasImmediateMateFollowup) {
+              allRepliesLeadToMate = false;
               break;
             }
-            game.unmakeMoveDirect(oppSt);
           }
-          game.unmakeMoveDirect(st);
-
-          if (opponentHasMate) {
-            score -= 5000; // Vermeide sofortiges Matt
-          } else {
-            score += 400; // Aktiver Weiterkampf um Patt / 50-Züge-Regel
+          if (allRepliesLeadToMate) {
+            isForcedMateIn2 = true;
           }
         }
+
+        // Gegnerischen König an den Rand drängen & Mattnetz zuziehen (bei Materialvorteil)
+        if (hasMaterialAdvantage && oppKingSq !== -1) {
+          const kRow = Math.floor(oppKingSq / 8);
+          const kCol = oppKingSq % 8;
+          const centerDist = Math.max(Math.abs(3.5 - kRow), Math.abs(3.5 - kCol));
+          score += centerDist * 220; // Massiver Bonus je näher der gegnerische König am Rand/Ecke ist
+
+          // Bewegungsradius des gegnerischen Königs einschnüren
+          const oppKingLegalMoves = oppLegalMoves.filter(m => m.piece && m.piece.type === 'k').length;
+          score += (8 - oppKingLegalMoves) * 80;
+
+          // Eigener König rückt heran, um das Mattnetz zuzuziehen
+          if (myKingSq !== -1) {
+            const mRow = Math.floor(myKingSq / 8);
+            const mCol = myKingSq % 8;
+            const distBetweenKings = Math.max(Math.abs(mRow - kRow), Math.abs(mCol - kCol));
+            score += (7 - distBetweenKings) * 120;
+          }
+        }
+
+        game.unmakeMoveDirect(state);
+      }
+
+      // --- TAKTISCHE REGELN MIT HÖCHSTER PRIORITÄT ---
+      if (isImmediateMate) {
+        return 50000; // Unwiderruflich Matt in 1 -> MUSS gespielt werden!
+      }
+      if (isForcedMateIn2) {
+        score += 25000; // Forciertes Matt in 2
+      }
+
+      // Harter Malus für Patt & 3-fache Wiederholung bei Führung (kein Remis akzeptieren!)
+      if (hasMaterialAdvantage) {
+        if (isImmediateStalemate) {
+          score -= 100000; // NIEMALS Patt setzen bei Führung!
+        }
+        if (isThreefoldRepetition) {
+          score -= 50000; // Keine Zugwiederholung bei Materialvorteil!
+        }
+      } else if (ownPieceCount <= 2 && isImmediateStalemate) {
+        // Bei hoffnungslosem Rückstand ist Patt ein gewollter Rettungsanker
+        score += 8000;
+      }
+
+      // 3. Schach bieten & Figuren schlagen
+      if (givesCheck) {
+        score += 1200;
+      }
+
+      if (move.captured || move.isEnPassant) {
+        score += 900;
+        const capturedType = move.captured ? (move.captured.type || '').toLowerCase() : 'p';
+        const capturedVal = pieceValTable[capturedType] || 100;
+        score += capturedVal * 2.5;
+      }
+
+      // 4. Freibauern & Bauernumwandlung aktiv forcieren
+      const forwardAdvancement = (turn === 'w') ? (fromRow - toRow) : (toRow - fromRow);
+      if (move.piece && move.piece.type === 'p') {
+        // Freibauern-Prüfung: Gibt es gegnerische Bauern auf der gleichen oder Nachbarlinien vor ihm?
+        let isPassedPawn = true;
+        const startR = (turn === 'w') ? fromRow - 1 : fromRow + 1;
+        const endR = (turn === 'w') ? 0 : 7;
+        const stepR = (turn === 'w') ? -1 : 1;
+
+        if (Array.isArray(game.board)) {
+          for (let r = startR; (turn === 'w' ? r >= endR : r <= endR); r += stepR) {
+            for (let c = Math.max(0, fromCol - 1); c <= Math.min(7, fromCol + 1); c++) {
+              const p = game.board[r * 8 + c];
+              if (p && p.color === oppColor && p.type === 'p') {
+                isPassedPawn = false;
+                break;
+              }
+            }
+            if (!isPassedPawn) break;
+          }
+        }
+
+        if (isPassedPawn) {
+          score += 1000; // Freibauer erkannt!
+          const distanceToGoal = (turn === 'w') ? toRow : (7 - toRow);
+          score += (7 - distanceToGoal) * 350; // Je näher an der Grundreihe, desto unaufhaltsamer!
+          if (hasMaterialAdvantage) score += 800;
+        }
+
+        if (move.promotion) {
+          score += 3500; // Sofortige Damen-Umwandlung!
+        } else {
+          if (turn === 'w' && toRow <= 2) score += 600;
+          if (turn === 'b' && toRow >= 5) score += 600;
+        }
+      }
+
+      // 5. Raumgewinn & Vorrücken in gegnerische Spielfeldhälfte
+      const isInOpponentHalf = (turn === 'w') ? (toRow <= 3) : (toRow >= 4);
+      if (isInOpponentHalf) {
+        score += 300;
+      }
+      if (forwardAdvancement > 0) {
+        score += forwardAdvancement * 70;
+      }
+
+      // 6. Endspiel-Resilienz bei Unterzahl (1–2 eigene Figuren)
+      if (ownPieceCount <= 2 && !hasMaterialAdvantage) {
+        if (move.captured || move.isEnPassant) score += 1800;
       }
 
       return score;
@@ -262,9 +365,10 @@
 
     /**
      * Wählt den besten Zug für die Royale KI Engine unter Berücksichtigung von:
-     * 1. 15%-Exploration-Rate (kalkulierte offensive Züge testen)
-     * 2. Firestore-Wissen mit aggressivem Entscheidungs-Filter bei ähnlichen Werten
-     * 3. Offensiver Fallback bei unbekannten Stellungen
+     * 1. Taktische Matt-Sequenz (höchste Priorität)
+     * 2. 15%-Exploration-Rate (kalkulierte offensive Züge testen)
+     * 3. Firestore-Wissen mit aggressivem Entscheidungs-Filter bei ähnlichen Werten
+     * 4. Offensiver Fallback bei unbekannten Stellungen
      */
     selectRoyaleAIMove(game, knowledge, options = {}) {
       const legalMoves = game.generateLegalMoves(game.turn);
@@ -284,19 +388,32 @@
         return { move: m, uci, attackScore, firestoreScore };
       });
 
+      // --- PRIORITÄT 0: SOFORT-MATT / UNAUSWEICHLICHES MATT ---
+      const mateMove = scoredMoves.find(m => m.attackScore >= 20000);
+      if (mateMove) {
+        console.log(`[Royale KI] 👑 Taktische Matt-Sequenz gefunden! Sofortige Exekution: ${mateMove.uci} (Score: ${mateMove.attackScore})`);
+        return mateMove.move;
+      }
+
       // --- Modus A: 15% Exploration (kalkulierte offensive Züge testen) ---
       if (isExploring) {
-        scoredMoves.sort((a, b) => b.attackScore - a.attackScore);
-        const topAttack = scoredMoves[0].attackScore;
-        const offensiveCandidates = scoredMoves.filter(item => item.attackScore >= Math.max(100, topAttack - 150));
-        const pool = offensiveCandidates.length > 0 ? offensiveCandidates : scoredMoves.slice(0, Math.min(3, scoredMoves.length));
+        // Vermeide Züge mit hartem Malus (z. B. Patt-Blunder bei Führung)
+        const viableMoves = scoredMoves.filter(m => m.attackScore > -10000);
+        const poolToFilter = viableMoves.length > 0 ? viableMoves : scoredMoves;
+        poolToFilter.sort((a, b) => b.attackScore - a.attackScore);
+        const topAttack = poolToFilter[0].attackScore;
+        const offensiveCandidates = poolToFilter.filter(item => item.attackScore >= Math.max(100, topAttack - 150));
+        const pool = offensiveCandidates.length > 0 ? offensiveCandidates : poolToFilter.slice(0, Math.min(3, poolToFilter.length));
         const chosen = pool[Math.floor(Math.random() * pool.length)];
         console.log(`[Royale KI] ⚔️ 15% Exploration: Teste kalkulierten Angriffszug: ${chosen.uci} (Attack-Score: ${chosen.attackScore})`);
         return chosen.move;
       }
 
       // --- Modus B: 85% Exploitation von Firestore-Wissen ---
-      const positiveKnowledgeMoves = scoredMoves.filter(item => !isNaN(item.firestoreScore) && item.firestoreScore > 0);
+      // Filtere Züge mit negativer Wertung oder hartem Malus (z. B. Patt-Falle)
+      const positiveKnowledgeMoves = scoredMoves.filter(item =>
+        !isNaN(item.firestoreScore) && item.firestoreScore > 0 && item.attackScore > -10000
+      );
 
       if (positiveKnowledgeMoves.length > 0) {
         let maxFirestoreScore = -Infinity;
@@ -325,10 +442,12 @@
       }
 
       // --- Modus C: Unbekannte Stellung -> kalkulierter offensiver Zug statt rein passivem Zufallszug ---
-      scoredMoves.sort((a, b) => b.attackScore - a.attackScore);
-      const topAttack = scoredMoves[0].attackScore;
-      const topOffensive = scoredMoves.filter(item => item.attackScore >= Math.max(100, topAttack - 150));
-      const pool = topOffensive.length > 0 ? topOffensive : scoredMoves;
+      const viableScored = scoredMoves.filter(m => m.attackScore > -10000);
+      const movesToRank = viableScored.length > 0 ? viableScored : scoredMoves;
+      movesToRank.sort((a, b) => b.attackScore - a.attackScore);
+      const topAttack = movesToRank[0].attackScore;
+      const topOffensive = movesToRank.filter(item => item.attackScore >= Math.max(100, topAttack - 150));
+      const pool = topOffensive.length > 0 ? topOffensive : movesToRank;
       const chosen = pool[Math.floor(Math.random() * pool.length)];
       console.log(`[Royale KI] 🚀 Unbekannte Stellung -> offensiv orientierter Zug: ${chosen.uci} (Attack: ${chosen.attackScore})`);
       return chosen.move;
@@ -380,9 +499,9 @@
 
         let scoreDelta = 0;
         if (!isDraw && winner) {
-          scoreDelta = (movingColor === winner) ? 3.0 : -1.0; // Sieg +3.0, Niederlage -1.0
+          scoreDelta = (movingColor === winner) ? 10.0 : -5.0; // Sieg +10.0, Niederlage -5.0
         } else {
-          scoreDelta = 0.05; // Remis nur noch +0.05 (drastisch abgewertet gegen Mauern)
+          scoreDelta = -2.0; // Remis als halbe Niederlage bestraft (-2.0)
         }
 
         if (!posMap.has(posKey)) {

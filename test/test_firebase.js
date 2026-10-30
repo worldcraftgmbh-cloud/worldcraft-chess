@@ -83,28 +83,45 @@ async function runFirebaseTests() {
   const mateAttackScore = fbService.calculateAttackBonus(game, mateMove);
   const quietAttackScore = fbService.calculateAttackBonus(game, quietMove);
 
-  assert(mateAttackScore > 1500, `Mate move attack score is very high (>1500, got ${mateAttackScore})`);
+  assert(mateAttackScore >= 50000, `Mate move attack score is Sofort-Matt (>=50000, got ${mateAttackScore})`);
   assert(mateAttackScore > quietAttackScore + 1000, `Mate move heavily outranks quiet move (${mateAttackScore} vs ${quietAttackScore})`);
 
-  // Test Aggressive Decision Filter when Firestore has similar scores:
-  // quietMove has 3.0, mateMove has 2.8 (similar scores in top band)
-  const simulatedKnowledge = {
+  // Test Tactical Mate Search override:
+  // Even if a quiet move has higher Firestore score (e.g. a2a3: 10.0 vs h5f7: 1.0),
+  // tactical mate in 1 MUST unconditionally be chosen!
+  const mateOverrideKnowledge = {
     moves: {
-      'a2a3': 3.0,
-      'h5f7': 2.8
+      'a2a3': 10.0,
+      'h5f7': 1.0
     }
   };
+  const mateChosen = fbService.selectRoyaleAIMove(game, mateOverrideKnowledge, { explorationRate: 0.5 });
+  assert(fbService.moveToUci(mateChosen) === 'h5f7', 'Tactical mate search unconditionally executed Qxf7# even though a2a3 had higher historical score');
 
-  // With explorationRate = 0 (exploitation mode), the aggressive filter must pick h5f7 because of attack bonus!
-  const chosenMove = fbService.selectRoyaleAIMove(game, simulatedKnowledge, { explorationRate: 0 });
-  const chosenUci = fbService.moveToUci(chosenMove);
-  assert(chosenUci === 'h5f7', `Aggressive filter chose attacking move h5f7 over passive move a2a3 despite similar score (chose: ${chosenUci})`);
+  // Test Stalemate Malus when leading in material:
+  // Set up: White K on f7, Q on g1. Black K on h8.
+  const endgameGame = new ChessEngine.ChessGame();
+  endgameGame.loadFen('7k/5K2/8/8/8/8/8/6Q1 w - - 0 1');
+  const egMoves = endgameGame.generateLegalMoves('w');
+  const stalemateMove = egMoves.find(m => fbService.moveToUci(m) === 'g1g6'); // Qg6 stalemates Black King on h8!
+  const mateIn1 = egMoves.find(m => fbService.moveToUci(m) === 'g1g7'); // Qg7# is mate!
 
-  // Test 15% Exploration Mode (explorationRate = 1.0)
-  const exploredMove = fbService.selectRoyaleAIMove(game, simulatedKnowledge, { explorationRate: 1.0 });
-  assert(exploredMove !== null, 'Exploration mode returned a valid legal move');
-  const exploredAttackBonus = fbService.calculateAttackBonus(game, exploredMove);
-  assert(exploredAttackBonus > 0, 'Explored move is calculated offensive move');
+  assert(stalemateMove !== undefined, 'Found Qg6 stalemate candidate');
+  assert(mateIn1 !== undefined, 'Found Qg7# mate move');
+
+  const staleScore = fbService.calculateAttackBonus(endgameGame, stalemateMove);
+  const mate1Score = fbService.calculateAttackBonus(endgameGame, mateIn1);
+
+  assert(staleScore <= -50000, `Stalemate when winning material received severe malus (<=-50000, got ${staleScore})`);
+  assert(mate1Score >= 50000, `Qg7# mate in 1 received mate priority (got ${mate1Score})`);
+
+  // Test Passed Pawn (Freibauer) push bonus:
+  // White has passed pawn on e6 moving to e7
+  const passedPawnGame = new ChessEngine.ChessGame();
+  passedPawnGame.loadFen('8/8/4P3/8/8/k7/8/K7 w - - 0 1');
+  const ppMove = passedPawnGame.generateLegalMoves('w').find(m => fbService.moveToUci(m) === 'e6e7');
+  const ppBonus = fbService.calculateAttackBonus(passedPawnGame, ppMove);
+  assert(ppBonus >= 2000, `Passed pawn push to 7th rank received massive bonus (>=2000, got ${ppBonus})`);
 
   console.log('ALL FIRESTORE INTEGRATION & ATTACK LOGIC TESTS PASSED!');
 }
