@@ -100,10 +100,11 @@ class EloSystem {
   }
 
   getPlayer(id) {
-    if (!this.players.has(id)) {
-      this.players.set(id, {
-        id,
-        name: `Spieler_${id.substring(0, 5)}`,
+    const safeId = id || ('u_' + Math.random().toString(36).substring(2, 8));
+    if (!this.players.has(safeId)) {
+      this.players.set(safeId, {
+        id: safeId,
+        name: `Spieler_${safeId.substring(0, 5)}`,
         rating: 1500,
         country: 'Deutschland',
         region: 'Bayern',

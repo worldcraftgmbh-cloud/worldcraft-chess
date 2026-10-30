@@ -188,6 +188,7 @@ class GameRoom {
   handleTimeout(winnerColor) {
     const winnerPlayer = winnerColor === 'w' ? this.white : this.black;
     const loserPlayer = winnerColor === 'w' ? this.black : this.white;
+    if (!winnerPlayer || !loserPlayer) return;
 
     const eloUpdate = eloSystem.recordMatch(
       this.white.playerId,
@@ -255,7 +256,7 @@ wss.on('connection', (ws) => {
 
         const player = {
           ws: socket,
-          playerId: data.playerId,
+          playerId: data.playerId || ('u_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)),
           name: data.playerName || 'Spieler Weiß',
           rating: data.rating || 1200,
           timeLeft: baseTime
@@ -288,7 +289,7 @@ wss.on('connection', (ws) => {
 
         const player = {
           ws: socket,
-          playerId: data.playerId,
+          playerId: data.playerId || ('u_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)),
           name: data.playerName || 'Gastspieler',
           rating: data.rating || 1200,
           timeLeft: room.timeControl.base
@@ -389,7 +390,7 @@ wss.on('connection', (ws) => {
 
         room.broadcast({
           type: 'move_made',
-          move: moveRes,
+          move: { ...moveRes, sender: isWhiteTurn ? 'w' : 'b' },
           san: moveRes.san,
           fen: room.game.getFen(),
           whiteTime: room.white.timeLeft,

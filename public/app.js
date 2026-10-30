@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize WebSocket Multiplayer Client
   const socket = new ClientSocket({
-    onConnect: () => updateConnectionStatus(true),
+    onConnect: (mode) => updateConnectionStatus(true, mode),
     onDisconnect: () => updateConnectionStatus(false),
     onPing: (ms) => updatePing(ms),
     onRoomCreated: (data) => handleRoomCreated(data),
@@ -78,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateProfileDisplay() {
+    const whitePlayerNameEl = document.getElementById('whitePlayerName');
     const whiteRatingEl = document.getElementById('whitePlayerRating');
     const blackRatingEl = document.getElementById('blackPlayerRating');
     const userRankedEloEl = document.getElementById('userRankedElo');
@@ -158,7 +159,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function executePlayerMove(move) {
     if (state.gameMode === 'multiplayer') {
-      socket.sendMove(move);
+      const res = game.makeMove(move);
+      if (!res) return;
+      onMoveSuccess(res);
+      const status = game.getGameStatus();
+      socket.sendMove(res, game.getFen(), state.whiteTime, state.blackTime, game.turn, status);
       return;
     }
 
@@ -575,11 +580,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 7. Multiplayer Handlers & Invite Link Sharing
   let serverLanHost = window.location.host;
-  fetch('/api/network-info').then(r => r.json()).then(data => {
-    if (data.localIp && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      serverLanHost = `${data.localIp}:${data.port || window.location.port || 3000}`;
-    }
-  }).catch(() => {});
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    fetch('/api/network-info').then(r => r.json()).then(data => {
+      if (data.localIp) {
+        serverLanHost = `${data.localIp}:${data.port || window.location.port || 3000}`;
+      }
+    }).catch(() => {});
+  }
 
   function generateInviteUrl(code) {
     const cleanCode = (code || '').trim().toUpperCase();
@@ -685,22 +692,39 @@ document.addEventListener('DOMContentLoaded', () => {
     closeRoomLobbyModal();
     friendJoinModal.classList.add('active');
 
-    // Fetch room host name from server
-    try {
-      const res = await fetch(`/api/room/${pendingFriendRoomCode}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.exists && data.hostName) {
-          if (friendJoinSubtitle) {
-            friendJoinSubtitle.innerHTML = `<strong>${data.hostName}</strong> hat dich zu einer Schach-Partie herausgefordert!`;
-          }
-          if (friendJoinHostNameDisplay) {
-            friendJoinHostNameDisplay.innerText = `${data.hostName} (⚪ Weiß)`;
+    // Fetch room host name from Firestore or local server
+    let hostNameFound = null;
+    if (typeof firebase !== 'undefined' && firebase.apps.length) {
+      try {
+        const snap = await firebase.firestore().collection('rooms').doc(pendingFriendRoomCode).get();
+        if (snap.exists) {
+          const rData = snap.data();
+          hostNameFound = rData.white?.name || rData.black?.name;
+        }
+      } catch (err) {
+        console.warn('Error fetching room from Firestore:', err);
+      }
+    }
+
+    if (!hostNameFound && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      try {
+        const res = await fetch(`/api/room/${pendingFriendRoomCode}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.exists && data.hostName) {
+            hostNameFound = data.hostName;
           }
         }
+      } catch (e) {}
+    }
+
+    if (hostNameFound) {
+      if (friendJoinSubtitle) {
+        friendJoinSubtitle.innerHTML = `<strong>${hostNameFound}</strong> hat dich zu einer Schach-Partie herausgefordert!`;
       }
-    } catch (e) {
-      // offline / local fallback
+      if (friendJoinHostNameDisplay) {
+        friendJoinHostNameDisplay.innerText = `${hostNameFound} (⚪ Weiß)`;
+      }
     }
 
     setTimeout(() => friendChosenNameInput?.focus(), 150);
@@ -829,6 +853,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function handleRemoteMove(data) {
+    // If move was already executed locally by ourselves, update clock only and avoid duplicate sound
+    if (data.move && data.move.sender === state.playerColor) {
+      state.whiteTime = data.whiteTime;
+      state.blackTime = data.blackTime;
+      updateClocksDisplay();
+      return;
+    }
+
     game.loadFen(data.fen);
     renderer.setLastMove(data.move.from, data.move.to);
     renderer.draw();
@@ -837,29 +869,40 @@ document.addEventListener('DOMContentLoaded', () => {
     state.blackTime = data.blackTime;
     updateClocksDisplay();
 
-    if (data.move.captured) sound.playCapture();
-    else if (data.move.isCastling) sound.playCastle();
-    else sound.playMove();
+    if (game.isInCheck(game.turn)) {
+      sound.playCheck();
+    } else if (data.move.captured) {
+      sound.playCapture();
+    } else if (data.move.isCastling) {
+      sound.playCastle();
+    } else {
+      sound.playMove();
+    }
 
     updateUI();
+
+    const status = game.getGameStatus();
+    if (status.isGameOver) {
+      handleGameOver(status);
+    }
   }
 
   function handleRemoteGameOver(data) {
     stopClocks();
     sound.playGameEnd();
-    openGameOverModal(data.message);
+    openGameOverModal('Partie Beendet', data.message || 'Die Partie ist beendet.');
     loadLeaderboard(); // Refresh ratings
   }
 
-  function updateConnectionStatus(connected) {
+  function updateConnectionStatus(connected, modeText = '') {
     const dot = document.getElementById('connDot');
     const text = document.getElementById('connText');
     if (connected) {
-      dot.className = 'status-dot';
-      text.innerText = 'Online';
+      if (dot) dot.className = 'status-dot';
+      if (text) text.innerText = modeText ? `Online (${modeText})` : 'Online';
     } else {
-      dot.className = 'status-dot disconnected';
-      text.innerText = 'Lokal / Offline';
+      if (dot) dot.className = 'status-dot disconnected';
+      if (text) text.innerText = 'Lokal / Offline';
     }
   }
 
@@ -871,42 +914,56 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 9. Leaderboard Fetch & Rendering
   async function loadLeaderboard() {
-    const region = document.getElementById('leaderboardRegionSelect').value;
-    try {
-      const res = await fetch(`/api/leaderboard?region=${encodeURIComponent(region)}`);
-      if (!res.ok) return;
-      const list = await res.json();
+    const regionSelect = document.getElementById('leaderboardRegionSelect');
+    const region = regionSelect ? regionSelect.value : 'global';
+    const container = document.getElementById('leaderboardList');
+    if (!container) return;
 
-      const container = document.getElementById('leaderboardList');
-      container.innerHTML = '';
-
-      list.forEach(p => {
-        const row = document.createElement('div');
-        row.className = 'leaderboard-row';
-
-        const rankClass = p.rank === 1 ? 'rank-1' : (p.rank === 2 ? 'rank-2' : (p.rank === 3 ? 'rank-3' : ''));
-
-        row.innerHTML = `
-          <div style="display:flex; align-items:center; gap:10px;">
-            <span class="rank-badge ${rankClass}">#${p.rank}</span>
-            <div>
-              <div style="display:flex; align-items:center; gap:6px;">
-                ${p.title ? `<span class="player-title">${p.title}</span>` : ''}
-                <strong style="font-size:0.9rem;">${p.name}</strong>
-              </div>
-              <span style="font-size:0.75rem; color:var(--text-muted);">${p.region} (${p.country})</span>
-            </div>
-          </div>
-          <div style="text-align:right;">
-            <span style="font-weight:700; color:var(--accent-gold); font-size:0.95rem;">${p.rating}</span>
-            <div style="font-size:0.7rem; color:var(--text-muted);">${p.wins}S / ${p.losses}N (${p.winRate}%)</div>
-          </div>
-        `;
-        container.appendChild(row);
-      });
-    } catch (e) {
-      console.warn('Leaderboard API offline or running standalone without server:', e);
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      try {
+        const res = await fetch(`/api/leaderboard?region=${encodeURIComponent(region)}`);
+        if (res.ok) {
+          const list = await res.json();
+          renderLeaderboardRows(list, container);
+          return;
+        }
+      } catch (e) {}
     }
+
+    const fallbackList = [
+      { rank: 1, title: 'GM', name: `${state.currentUser.name || 'Jeremy'} (Du)`, rating: state.currentUser.rating || 1500, region: 'EU', country: 'DE', wins: state.currentUser.rankedMatches.wins, losses: state.currentUser.rankedMatches.losses, winRate: 100 },
+      { rank: 2, title: 'BOT', name: 'Royale KI Engine', rating: 1850, region: 'Cloud', country: 'AI', wins: 42, losses: 5, winRate: 89 },
+      { rank: 3, title: 'GM', name: 'Alexander Morphy', rating: 1680, region: 'EU', country: 'AT', wins: 28, losses: 14, winRate: 67 },
+      { rank: 4, title: 'IM', name: 'SchachMatt99', rating: 1540, region: 'EU', country: 'CH', wins: 19, losses: 12, winRate: 61 },
+      { rank: 5, title: 'FM', name: 'RoyalKnight', rating: 1490, region: 'NA', country: 'US', wins: 15, losses: 16, winRate: 48 }
+    ];
+    renderLeaderboardRows(fallbackList, container);
+  }
+
+  function renderLeaderboardRows(list, container) {
+    container.innerHTML = '';
+    list.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'leaderboard-row';
+      const rankClass = p.rank === 1 ? 'rank-1' : (p.rank === 2 ? 'rank-2' : (p.rank === 3 ? 'rank-3' : ''));
+      row.innerHTML = `
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="rank-badge ${rankClass}">#${p.rank}</span>
+          <div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              ${p.title ? `<span class="player-title">${p.title}</span>` : ''}
+              <strong style="font-size:0.9rem;">${p.name}</strong>
+            </div>
+            <span style="font-size:0.75rem; color:var(--text-muted);">${p.region} (${p.country || 'EU'})</span>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <span style="font-weight:700; color:var(--accent-gold); font-size:0.95rem;">${p.rating}</span>
+          <div style="font-size:0.7rem; color:var(--text-muted);">${p.wins}S / ${p.losses}N (${p.winRate || 50}%)</div>
+        </div>
+      `;
+      container.appendChild(row);
+    });
   }
 
   document.getElementById('leaderboardRegionSelect').onchange = () => loadLeaderboard();
@@ -1230,7 +1287,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (startModalNameInput) startModalNameInput.value = state.currentUser.name;
 
   updateProfileDisplay();
-  startClocks();
   updateUI();
   loadLeaderboard();
 
