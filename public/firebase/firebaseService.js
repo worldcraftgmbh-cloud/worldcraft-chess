@@ -218,6 +218,45 @@
         score += forwardAdvancement * 60;
       }
 
+      // 4. Endspiel-Resilienz (1–2 eigene Figuren übrig): Niemals aufgeben, aktiv um Patt & Remis kämpfen!
+      let ownPieceCount = 0;
+      if (Array.isArray(game.board)) {
+        for (let i = 0; i < 64; i++) {
+          const p = game.board[i];
+          if (p && p.color === turn) ownPieceCount++;
+        }
+      }
+
+      if (ownPieceCount <= 2) {
+        // A: Schlagen gegnerischer Figuren hat hohe Priorität (Material vernichten / Matt verhindern)
+        if (move.captured || move.isEnPassant) {
+          score += 1500;
+        }
+
+        // B: Niemals freiwillig in ein gegnerisches 1-Zug-Matt laufen, wenn Alternativen überleben!
+        if (typeof game.makeMoveDirect === 'function' && typeof game.unmakeMoveDirect === 'function') {
+          const st = game.makeMoveDirect(move);
+          const oppMoves = game.generateLegalMoves(oppColor);
+          let opponentHasMate = false;
+          for (let oi = 0; oi < oppMoves.length; oi++) {
+            const oppSt = game.makeMoveDirect(oppMoves[oi]);
+            if (game.isInCheck(turn) && game.generateLegalMoves(turn).length === 0) {
+              opponentHasMate = true;
+              game.unmakeMoveDirect(oppSt);
+              break;
+            }
+            game.unmakeMoveDirect(oppSt);
+          }
+          game.unmakeMoveDirect(st);
+
+          if (opponentHasMate) {
+            score -= 5000; // Vermeide sofortiges Matt
+          } else {
+            score += 400; // Aktiver Weiterkampf um Patt / 50-Züge-Regel
+          }
+        }
+      }
+
       return score;
     }
 

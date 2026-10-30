@@ -384,9 +384,9 @@
           const simGame = new ChessGame();
           const moveLog = [];
           let moveCount = 0;
-          const MAX_MOVES = 80; // Bound game length to prevent endless endgames
 
-          while (!simGame.getGameStatus().isGameOver && moveCount < MAX_MOVES) {
+          // Niemals aufgeben: Selbstspiel läuft bis zum regulären FIDE-Spielende
+          while (!simGame.getGameStatus().isGameOver) {
             // Epsilon-greedy exploration during self-play
             const legalMoves = simGame.generateLegalMoves(simGame.turn);
             let chosenMove = null;

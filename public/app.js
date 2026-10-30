@@ -1068,9 +1068,10 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       let moveCount = 0;
-      const MAX_MOVES = 160;
 
-      while (!trainingGame.getGameStatus().isGameOver && moveCount < MAX_MOVES) {
+      // Niemals aufgeben: Partie läuft vollständig bis zum regulären FIDE-Spielende!
+      // (Schachmatt, Patt, unzureichendes Material, 50-Züge-Regel, 3-fache Stellungswiederholung)
+      while (!trainingGame.getGameStatus().isGameOver) {
         if (state.trainingCancelled) break;
 
         const currentTurn = trainingGame.turn;
@@ -1114,23 +1115,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (state.trainingCancelled) break;
 
-      // Match finished
+      // Match finished strictly under FIDE rules
       const status = trainingGame.getGameStatus();
-      const isDraw = status.isGameOver ? (status.status !== 'checkmate') : true;
-      const winner = (!isDraw && status.winner) ? status.winner : null;
+      const isCheckmate = (status.status === 'checkmate');
+      const isDraw = !isCheckmate;
+      const winner = isCheckmate ? status.winner : null;
 
-      if (isDraw) {
+      if (status.status === 'stalemate') {
         scores.draws++;
         if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
-        updateCompactLog(`🤝 Partie ${round}: Remis. Speichere Firestore...`);
+        updateCompactLog(`🤝 Partie ${round}: Remis durch reguläres Patt! Speichere Firestore...`);
+      } else if (status.status === 'insufficient_material') {
+        scores.draws++;
+        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
+        updateCompactLog(`🤝 Partie ${round}: Remis durch unzureichendes Material. Speichere Firestore...`);
+      } else if (status.status === 'fifty_move_rule') {
+        scores.draws++;
+        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
+        updateCompactLog(`🤝 Partie ${round}: Remis durch 50-Züge-Regel. Speichere Firestore...`);
+      } else if (status.status === 'threefold_repetition') {
+        scores.draws++;
+        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
+        updateCompactLog(`🤝 Partie ${round}: Remis durch 3-fache Stellungswiederholung. Speichere Firestore...`);
       } else if (winner === trainerColor) {
         scores.trainer++;
         if (compactScoreTrainer) compactScoreTrainer.innerText = scores.trainer;
-        updateCompactLog(`🏆 Partie ${round}: Trainer gewinnt. Speichere Firestore...`);
-      } else {
+        updateCompactLog(`🏆 Partie ${round}: Trainer gewinnt durch Schachmatt. Speichere Firestore...`);
+      } else if (winner === royaleColor) {
         scores.royale++;
         if (compactScoreRoyale) compactScoreRoyale.innerText = scores.royale;
-        updateCompactLog(`⭐ Partie ${round}: Royale KI gewinnt! Speichere Firestore...`);
+        updateCompactLog(`⭐ Partie ${round}: Royale KI gewinnt durch Schachmatt! Speichere Firestore...`);
+      } else {
+        scores.draws++;
+        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
+        updateCompactLog(`🤝 Partie ${round}: Remis (${status.reason || 'FIDE'}). Speichere Firestore...`);
       }
 
       // Persist to Firebase Firestore after EVERY match!
