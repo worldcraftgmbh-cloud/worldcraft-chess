@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Worldcraft Chess — Meister-Schachplattform</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>♔</text></svg>">
+</head>
+<body>
+
+  <!-- Header Navigation -->
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 2l3 5h6l-4 5 2 7-7-4-7 4 2-7-4-5h6z"/>
+      </svg>
+      <span class="brand-title">Worldcraft Chess</span>
+      <span class="brand-badge">Worldcraft Edition</span>
+    </div>
+
+    <div class="header-global-stats">
+      <div class="stat-pill" title="Weltweit über Firebase Firestore ausgetragene Partien">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+        <span>Globale Partien: <strong id="globalGamesCount">0</strong></span>
+      </div>
+      <div class="stat-pill" title="Weltweit in Firebase Firestore trainierte Stellungen">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+        </svg>
+        <span>Weltweit trainierte Stellungen: <strong id="globalPositionsCount">0</strong></span>
+      </div>
+    </div>
+
+    <div class="testphase-badge" id="headerTestphaseBadge" title="Entwickler- & Trainingsmodus permanent aktiv">
+      <span class="icon">🛠️</span>
+      <span>Testphase / Trainingsmodus (Admin aktiv)</span>
+    </div>
+
+    <button class="btn-rulebook" id="btnHeaderRulebook" title="FIDE Schach-Regelbuch öffnen">
+      <span>📖</span>
+      <span>Regeln</span>
+    </button>
+
+    <button class="btn-admin-training" id="btnHeaderAdminTraining" title="Admin KI-Trainingszentrum öffnen" style="display: inline-flex;">
+      <span>🤖</span>
+      <span>KI-Trainingszentrum</span>
+    </button>
+
+    <span class="admin-status-text active" id="adminStatusText" style="display: none;">Admin-Modus: Aktiviert</span>
+
+    <div class="header-status">
+      <div class="status-indicator">
+        <span class="status-dot" id="connDot"></span>
+        <span id="connText">Verbindung prüfen...</span>
+      </div>
+      <div class="status-indicator" style="display: flex; gap: 6px;">
+        <span style="color: var(--text-muted); font-size: 0.75rem;">Latenz:</span>
+        <span id="pingBadge" style="font-weight: 600; color: var(--accent-gold);">-- ms</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-container">
+
+    <!-- Left: Chess Board Area -->
+    <section class="board-section">
+
+      <!-- Opponent / Black Player Card -->
+      <div class="player-bar" id="blackPlayerBar">
+        <div class="player-info">
+          <div class="player-avatar" id="blackAvatar">B</div>
+          <div class="player-meta">
+            <div class="player-name-row">
+              <span class="player-title" id="opponentTitle">BOT</span>
+              <span class="player-name" id="opponentName">Royale KI Engine</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="player-rating" id="blackPlayerRating">1850 ELO</span>
+              <div class="captured-pieces" id="blackCaptured"></div>
+              <span class="material-diff" id="blackMaterialDiff"></span>
+            </div>
+          </div>
+        </div>
+        <div class="clock-badge" id="blackClock">10:00</div>
+      </div>
+
+      <!-- Canvas Board Container (Square & HiDPI Aware) -->
+      <div class="canvas-wrapper">
+        <canvas id="chessCanvas" width="800" height="800"></canvas>
+
+        <!-- Compact Minimizable Training Dashboard (Shown during Bot-vs-Bot Training) -->
+        <div class="compact-training-dashboard" id="compactTrainingDashboard">
+          <div class="compact-training-header">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="status-dot" style="background: #A3E635; box-shadow: 0 0 8px #A3E635;"></div>
+              <strong id="compactRoundText" style="font-size: 0.85rem; color: #E9D5FF;">Partie 1 von 10</strong>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button class="compact-btn-toggle" id="btnToggleCompactTrain" title="Minimieren / Erweitern">–</button>
+              <button class="compact-btn-cancel" id="btnCompactCancel" title="Training abbrechen">⏹️ Stop</button>
+            </div>
+          </div>
+
+          <div class="compact-training-body" id="compactTrainingBody">
+            <div class="progress-bar-bg" style="height: 6px; margin: 4px 0 8px 0;">
+              <div class="progress-bar-fill" id="compactProgressFill" style="width: 0%; background: linear-gradient(90deg, #7C3AED, #A3E635);"></div>
+            </div>
+            <div class="compact-scoreboard">
+              <span>🎓 Trainer: <strong id="compactScoreTrainer" style="color: #60A5FA;">0</strong></span>
+              <span>🤖 KI: <strong id="compactScoreRoyale" style="color: #A78BFA;">0</strong></span>
+              <span>🤝 Remis: <strong id="compactScoreDraws" style="color: var(--accent-gold);">0</strong></span>
+            </div>
+            <div class="compact-log" id="compactLogText">Training initialisiert...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Player / White Player Card -->
+      <div class="player-bar" id="whitePlayerBar">
+        <div class="player-info">
+          <div class="player-avatar" id="whiteAvatar">W</div>
+          <div class="player-meta">
+            <div class="player-name-row">
+              <span class="player-title">DU</span>
+              <span class="player-name" id="whitePlayerName">Spieler Weiß</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="player-rating" id="whitePlayerRating">1500 ELO</span>
+              <div class="captured-pieces" id="whiteCaptured"></div>
+              <span class="material-diff" id="whiteMaterialDiff"></span>
+            </div>
+          </div>
+        </div>
+        <div class="clock-badge active-turn" id="whiteClock">10:00</div>
+      </div>
+
+      <!-- Board Action Toolbar -->
+      <div class="board-toolbar">
+        <button class="btn-tool" id="btnFlip" title="Brett drehen">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4"/>
+          </svg>
+          Drehen
+        </button>
+        <button class="btn-tool" id="btnNewGame" title="Neue Partie">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          Neu
+        </button>
+        <button class="btn-tool" id="btnResign" title="Partie aufgeben">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/>
+          </svg>
+          Aufgeben
+        </button>
+        <button class="btn-tool" id="btnSoundToggle" title="Audio an/aus" style="color: var(--accent-gold);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+          </svg>
+          Sound
+        </button>
+        <button class="btn-tool" id="btnExportPgn" title="Partie als PGN kopieren">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          PGN
+        </button>
+        <button class="btn-tool" id="btnRulebook" title="FIDE Regelbuch öffnen" style="color: var(--accent-gold-light); border-color: rgba(214, 168, 79, 0.4);">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+          Regeln
+        </button>
+      </div>
+
+    </section>
+
+    <!-- Right: Sidebar Controls & Tabs -->
+    <aside class="sidebar">
+
+      <!-- Navigation Tabs -->
+      <nav class="sidebar-tabs">
+        <button class="tab-btn active" data-tab="tabGame">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          Partie
+        </button>
+        <button class="tab-btn" data-tab="tabHistory">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          Züge
+        </button>
+        <button class="tab-btn" data-tab="tabAiTrain">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+          KI-Labor
+        </button>
+        <button class="tab-btn" data-tab="tabLeaderboard">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 20V10M12 20V4M6 20v-6"/>
+          </svg>
+          Rangliste
+        </button>
+      </nav>
+
+      <!-- Tab 1: Game Settings & Modes -->
+      <div class="tab-content active" id="tabGame">
+        <div class="card-box">
+          <div class="card-title">
+            <span>Spielmodus</span>
+            <span id="turnBadge" style="font-size: 0.8rem; font-weight: 700; color: #F2ECDB;">Weiß am Zug</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Modus auswählen</label>
+            <select class="select-custom" id="gameModeSelect">
+              <option value="ai">Gegen eigenständige KI</option>
+              <option value="pass_and_play">Pass & Play (Lokal 2 Spieler)</option>
+              <option value="multiplayer">Online Multiplayer (WebSocket)</option>
+            </select>
+          </div>
+
+          <!-- AI Settings -->
+          <div id="aiSettingsBox">
+            <div class="form-group">
+              <label class="form-label">KI-Lernmodus & Modell</label>
+              <select class="select-custom" id="aiDifficultySelect">
+                <option value="firebase_rl" selected>Royale KI (Globales Firebase-Lernen: Untrainiert ➔ Autodidakt)</option>
+                <option value="3">Klassischer Minimax (Meister, Tiefe 3)</option>
+                <option value="1">Klassischer Minimax (Anfänger, Tiefe 1)</option>
+              </select>
+            </div>
+            <p style="font-size: 0.75rem; color: var(--text-muted); line-height: 1.4;">
+              Im Firebase-Lernmodus startet die Royale KI untrainiert und wählt bei unbekannten Stellungen zufällige Züge. Bei bekannten Stellungen wählt sie die weltweit am besten bewerteten Züge und lernt nach jedem Partieende weltweit über Firestore hinzu!
+            </p>
+          </div>
+
+          <!-- Multiplayer Settings -->
+          <div id="multiSettingsBox" style="display: none; margin-top: 14px;">
+            <div class="form-group">
+              <label class="form-label">Dein Spielername</label>
+              <input type="text" class="input-custom" id="multiPlayerName" value="Meister_Weiß" placeholder="Name">
+            </div>
+
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+              <button class="btn-primary" id="btnQuickMatch">Schnelles Match</button>
+              <button class="btn-secondary" id="btnCreateRoom">Raum erstellen</button>
+            </div>
+
+            <div class="form-group" style="margin-top: 10px;">
+              <label class="form-label">Raum-Code beitreten</label>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" class="input-custom" id="joinRoomInput" placeholder="z. B. 8K2L9A">
+                <button class="btn-secondary" id="btnJoinRoom" style="width: auto; padding: 0 16px;">Beitreten</button>
+              </div>
+            </div>
+
+            <div id="multiStatus" style="font-size: 0.8rem; color: var(--accent-gold); margin-top: 8px;"></div>
+          </div>
+        </div>
+
+        <!-- Personal Stats & ELO Protection Card -->
+        <div class="card-box">
+          <div class="card-title">
+            <span>Deine Wertung & Statistik</span>
+            <span class="badge-unranked" id="currentModeBadge">Trainingsspiel</span>
+          </div>
+          <div class="personal-stats-card">
+            <div class="stats-dual-row">
+              <span style="color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
+                <span>👤</span>
+                <strong>Menschliche ELO (Ranked):</strong>
+              </span>
+              <span style="font-weight: 700; color: var(--accent-gold);" id="userRankedElo">1500 ELO</span>
+            </div>
+            <div class="stats-dual-row">
+              <span style="color: var(--text-muted); font-size: 0.75rem;">Gewertete Online-Partien:</span>
+              <span style="font-size: 0.78rem; color: var(--text-secondary);" id="userRankedStats">0S / 0N (0 Spiele)</span>
+            </div>
+            <div class="stats-dual-row" style="margin-top: 6px; border-top: 1px dashed rgba(214, 168, 79, 0.2); padding-top: 6px;">
+              <span style="color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
+                <span>🤖</span>
+                <strong>KI-Matches (Training):</strong>
+              </span>
+              <span style="font-weight: 700; color: #A78BFA;" id="userAiMatchesCount">0 Partien</span>
+            </div>
+            <div class="stats-dual-row">
+              <span style="color: var(--text-muted); font-size: 0.75rem;">Trainings-Bilanz:</span>
+              <span style="font-size: 0.78rem; color: var(--text-secondary);" id="userAiStats">0S / 0N / 0R</span>
+            </div>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 8px; line-height: 1.4;">
+            🛡️ <strong>ELO-Schutz aktiv:</strong> Matches gegen die Royale KI Engine gelten als Trainingsspiele und verändern deine 1500 Start-ELO nicht.
+          </div>
+        </div>
+
+        <div class="card-box">
+          <div class="card-title">FIDE Regelwerk Highlights</div>
+          <ul style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.6; padding-left: 18px;">
+            <li>Vollständige Rochade (kurz/lang) mit Feldüberprüfungen</li>
+            <li>En-Passant Schlagzug im Folgebild</li>
+            <li>Bauernumwandlung (Dame, Turm, Läufer, Springer)</li>
+            <li>Patt, 50-Züge-Regel, dreifache Stellungswiederholung</li>
+            <li>Unzureichendes Material zur Mattsetzung</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Tab 2: Move Notation History -->
+      <div class="tab-content" id="tabHistory">
+        <div class="card-box" style="flex: 1; display: flex; flex-direction: column;">
+          <div class="card-title">
+            <span>Zugnotation (SAN)</span>
+            <span style="font-size: 0.75rem; color: var(--text-muted);">Standard FIDE</span>
+          </div>
+
+          <div class="history-container" id="historyContainer" style="flex: 1;">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th style="width: 40px;">#</th>
+                  <th>Weiß</th>
+                  <th>Schwarz</th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: AI Training & Reinforcement Learning Lab -->
+      <div class="tab-content" id="tabAiTrain">
+        <div class="card-box">
+          <div class="card-title">
+            <span>Reinforcement Learning</span>
+            <span class="player-title" style="background: var(--accent-green); color: #000;">AUTONOM</span>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.4;">
+            Eigenständiges Selbstspiel (Self-Play) mit Temporal Difference (TD) Reward-Propagation und dynamischer Gewichtsoptimierung ohne externe APIs.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label">Partien simulieren & trainieren</label>
+            <div style="display: flex; gap: 8px;">
+              <select class="select-custom" id="trainGamesInput" style="flex: 1;">
+                <option value="2">2 Partien (Schnelltest)</option>
+                <option value="5" selected>5 Partien</option>
+                <option value="15">15 Partien</option>
+                <option value="50">50 Partien (Intensiv)</option>
+              </select>
+              <button class="btn-primary" id="btnStartTraining" style="width: auto; padding: 0 16px;">Trainieren</button>
+            </div>
+          </div>
+
+          <div style="margin-top: 14px;">
+            <div class="rl-meter-header">
+              <span id="trainStatusText">Bereit zum Training</span>
+            </div>
+            <div class="progress-bar-bg" style="margin-top: 6px;">
+              <div class="progress-bar-fill" id="trainProgressFill" style="width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-box">
+          <div class="card-title">
+            <span>Aktuelle Bewertungs-Gewichte</span>
+            <span id="policySizeBadge" style="font-size: 0.75rem; color: var(--accent-gold);">0 Stellungen</span>
+          </div>
+
+          <div class="rl-meter-group">
+            <div class="rl-meter">
+              <div class="rl-meter-header">
+                <span>Material-Gewichtung</span>
+                <strong id="weightMaterial">1.00</strong>
+              </div>
+            </div>
+            <div class="rl-meter">
+              <div class="rl-meter-header">
+                <span>Positionstabellen (PST)</span>
+                <strong id="weightPst">1.00</strong>
+              </div>
+            </div>
+            <div class="rl-meter">
+              <div class="rl-meter-header">
+                <span>Mobilität & Spielfluss</span>
+                <strong id="weightMobility">0.12</strong>
+              </div>
+            </div>
+            <div class="rl-meter">
+              <div class="rl-meter-header">
+                <span>Königssicherheit</span>
+                <strong id="weightKing">0.25</strong>
+              </div>
+            </div>
+            <div class="rl-meter">
+              <div class="rl-meter-header">
+                <span>Zentrumskontrolle</span>
+                <strong id="weightCenter">0.15</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 16px;">
+            <button class="btn-secondary" id="btnExportWeights">Gewichte Exportieren</button>
+            <button class="btn-secondary" id="btnResetWeights" style="border-color: rgba(220,50,50,0.4); color: #E57373;">Zurücksetzen</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 4: Tiered Regional Leaderboards -->
+      <div class="tab-content" id="tabLeaderboard">
+        <div class="card-box">
+          <div class="card-title">
+            <span>FIDE ELO Rangliste</span>
+            <span style="font-size: 0.75rem; color: var(--accent-gold);">Gestaffelt</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Region / Bundesland filtern</label>
+            <select class="select-custom" id="leaderboardRegionSelect">
+              <option value="Alle">Global / International</option>
+              <option value="Bayern">Bayern</option>
+              <option value="Nordrhein-Westfalen">Nordrhein-Westfalen</option>
+              <option value="Baden-Württemberg">Baden-Württemberg</option>
+              <option value="Berlin">Berlin</option>
+              <option value="Hessen">Hessen</option>
+              <option value="Hamburg">Hamburg</option>
+              <option value="Sachsen">Sachsen</option>
+              <option value="Rheinland-Pfalz">Rheinland-Pfalz</option>
+            </select>
+          </div>
+
+          <div class="leaderboard-list" id="leaderboardList" style="margin-top: 12px;">
+            <!-- Populated dynamically via REST API -->
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+  </main>
+
+  <!-- Modal 0: Schlanker Farbwahl-Dialog vor Spielstart -->
+  <div class="modal-overlay" id="gameStartModal">
+    <div class="modal-box modal-start-game">
+      <div class="modal-header-brand">
+        <div>
+          <div class="modal-title" style="margin-bottom: 4px; font-size: 1.3rem;">⚔️ Partie Starten</div>
+          <div class="modal-subtitle" style="margin-bottom: 0;">Wähle deine Spielfarbe – das Spiel startet sofort:</div>
+        </div>
+      </div>
+
+      <!-- Color Options (Weiß spielen, Zufall, Schwarz spielen) -->
+      <div class="start-color-options" style="margin-top: 16px;">
+        <button class="start-color-card" data-color="w" id="btnChooseWhite" type="button">
+          <div class="color-circle circle-white">♔</div>
+          <div class="color-title">Weiß spielen</div>
+          <div class="color-desc">Du ziehst zuerst</div>
+        </button>
+        <button class="start-color-card" data-color="random" id="btnChooseRandom" type="button">
+          <div class="color-circle circle-random">🎲</div>
+          <div class="color-title">Zufall</div>
+          <div class="color-desc">50% Weiß / Schwarz</div>
+        </button>
+        <button class="start-color-card" data-color="b" id="btnChooseBlack" type="button">
+          <div class="color-circle circle-black">♚</div>
+          <div class="color-title">Schwarz spielen</div>
+          <div class="color-desc">Antwortet auf Weiß</div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 1: Pawn Promotion Selection -->
+  <div class="modal-overlay" id="promotionModal">
+    <div class="modal-box">
+      <div class="modal-title">Bauernumwandlung</div>
+      <div class="modal-subtitle">Wähle die gewünschte Figur für die Beförderung:</div>
+      <div class="promo-options" id="promotionOptions">
+        <!-- Populated dynamically with Queen, Rook, Bishop, Knight -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal 2: Game Over Screen -->
+  <div class="modal-overlay" id="gameOverModal">
+    <div class="modal-box">
+      <div class="modal-title" id="gameOverTitle">Partie Beendet</div>
+      <div class="modal-subtitle" id="gameOverText">Schachmatt!</div>
+      <button class="btn-primary" id="btnModalNewGame" style="margin-top: 10px;">Neue Partie Spielen</button>
+    </div>
+  </div>
+
+  <!-- Modal 3: Interaktives FIDE Regel-Kompendium ("Regelbuch") -->
+  <div class="modal-overlay" id="rulebookModal">
+    <div class="modal-box modal-rulebook">
+      <div class="rulebook-header">
+        <div class="rulebook-header-title">
+          <span class="rulebook-icon">📖</span>
+          <div>
+            <div class="modal-title" style="margin-bottom: 2px; text-align: left;">FIDE Schach-Regelbuch</div>
+            <div class="modal-subtitle" style="margin-bottom: 0; text-align: left; font-size: 0.8rem;">Offizielles Regelwerk & Taktik-Kompendium</div>
+          </div>
+        </div>
+        <button class="modal-close-btn" id="btnCloseRulebook" title="Schließen">&times;</button>
+      </div>
+
+      <!-- Rulebook Navigation Tabs -->
+      <div class="rule-tab-bar">
+        <button class="rule-tab-btn active" data-ruletab="ruleTabPieces">Figuren & Zugweisen</button>
+        <button class="rule-tab-btn" data-ruletab="ruleTabSpecial">Sonderregeln (Rochade, En-Passant, Umwandlung)</button>
+        <button class="rule-tab-btn" data-ruletab="ruleTabEnd">Spielende (Matt vs. Patt / Remis)</button>
+      </div>
+
+      <!-- Tab 1: Zugweise aller Figuren -->
+      <div class="rule-tab-pane active" id="ruleTabPieces">
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.3rem;">♞</span>
+              <span>Springer (Knight)</span>
+            </div>
+            <span class="rule-badge">L-Form & Sprung</span>
+          </div>
+          <p>
+            Der Springer zieht in einer <strong>L-Form</strong>: 2 Felder geradeaus (horizontal oder vertikal) und anschließend 1 Feld rechtwinklig zur Seite.
+          </p>
+          <div class="rule-highlight-box">
+            <strong>Exklusive Besonderheit:</strong>
+            <p>Der Springer ist die <em>einzige</em> Figur im Schach, die eigene und gegnerische Figuren einfach <strong>überspringen</strong> kann!</p>
+          </div>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.3rem;">♝</span>
+              <span>Läufer (Bishop)</span>
+            </div>
+            <span class="rule-badge">Diagonal</span>
+          </div>
+          <p>
+            Der Läufer zieht beliebig viele freie Felder entlang der <strong>Diagonalen</strong>. Er verbleibt während der gesamten Partie auf seiner ursprünglichen Feldfarbe (Weißfeldriger vs. Schwarzfeldriger Läufer).
+          </p>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.3rem;">♜</span>
+              <span>Turm (Rook)</span>
+            </div>
+            <span class="rule-badge">Orthogonal (Linie & Reihe)</span>
+          </div>
+          <p>
+            Der Turm zieht beliebig viele freie Felder waagerecht oder senkrecht. Zusammen mit dem König kann der Turm den Sonderzug der <em>Rochade</em> ausführen.
+          </p>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.3rem;">♛</span>
+              <span>Dame (Queen)</span>
+            </div>
+            <span class="rule-badge">Stärkste Figur</span>
+          </div>
+          <p>
+            Die Dame vereint die Kräfte von Turm und Läufer. Sie darf beliebig viele freie Felder in jede der 8 Richtungen (waagerecht, senkrecht und diagonal) ziehen.
+          </p>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.3rem;">♚</span>
+              <span>König (King)</span>
+            </div>
+            <span class="rule-badge">Höchster Wert</span>
+          </div>
+          <p>
+            Der König zieht genau <strong>1 Feld</strong> in jede beliebige Richtung. Er darf niemals ein Feld betreten, das von einer gegnerischen Figur bedroht wird. Wird er bedroht (<em>Schach</em>), muss die Bedrohung sofort abgewehrt werden.
+          </p>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.3rem;">♟</span>
+              <span>Bauer (Pawn)</span>
+            </div>
+            <span class="rule-badge">Vorwärts & Diagonalschlag</span>
+          </div>
+          <p>
+            Der Bauer zieht 1 Feld gerade vorwärts. Steht er noch auf seinem Ursprungsfeld (2. Reihe Weiß / 7. Reihe Schwarz), darf er wahlweise auch <strong>2 Felder</strong> vorrücken.
+          </p>
+          <div class="rule-highlight-box">
+            <strong>Schlagweise:</strong>
+            <p>Bauern schlagen gegnerische Figuren genau 1 Feld diagonal nach vorn (nicht geradeaus!).</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 2: Sonderregeln -->
+      <div class="rule-tab-pane" id="ruleTabSpecial">
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span>🏰 Rochade (Kurz & Lang)</span>
+            </div>
+            <span class="rule-badge">Doppelzug</span>
+          </div>
+          <p>
+            Einziger Zug, bei dem König und Turm im selben Zug bewegt werden:
+          </p>
+          <ul style="font-size: 0.83rem; color: var(--text-secondary); line-height: 1.6; padding-left: 20px; margin-top: 4px;">
+            <li><strong>Kurze Rochade (O-O)</strong>: König zieht 2 Felder nach rechts (e1 ➔ g1), Turm springt auf f1.</li>
+            <li><strong>Lange Rochade (O-O-O)</strong>: König zieht 2 Felder nach links (e1 ➔ c1), Turm springt auf d1.</li>
+          </ul>
+          <div class="rule-highlight-box box-amber">
+            <strong>Strenge FIDE-Voraussetzungen:</strong>
+            <p>1. Weder König noch der beteiligte Turm durften zuvor bewegt worden sein.<br>
+               2. Alle Felder zwischen König und Turm müssen komplett frei sein.<br>
+               3. Der König darf <em>nicht</em> im Schach stehen, <em>kein</em> bedrohtes Feld überqueren und auf <em>keinem</em> bedrohten Feld landen.</p>
+          </div>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span>⚡ En-Passant („Im Vorbeigehen“)</span>
+            </div>
+            <span class="rule-badge">Sonder-Schlagzug</span>
+          </div>
+          <p>
+            Macht ein gegnerischer Bauer einen Doppelschritt aus seiner Grundreihe und landet direkt neben deinem weit vorgerückten Bauern (5. Reihe für Weiß / 4. Reihe für Schwarz), darfst du ihn so schlagen, als wäre er nur 1 Feld gezogen.
+          </p>
+          <div class="rule-highlight-box box-amber">
+            <strong>Wichtiges Zeitfenster:</strong>
+            <p>Das Recht auf En-Passant verfällt sofort, wenn du es nicht <strong>unmittelbar im nächsten Zug</strong> ausführst!</p>
+          </div>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span>👑 Bauernumwandlung (Promotion)</span>
+            </div>
+            <span class="rule-badge">Beförderung</span>
+          </div>
+          <p>
+            Erreicht dein Bauer die gegnerische Grundreihe (8. Reihe Weiß / 1. Reihe Schwarz), muss er sofort in eine <strong>Dame, einen Turm, einen Läufer oder einen Springer</strong> umgewandelt werden.
+          </p>
+          <div class="rule-highlight-box box-green">
+            <strong>Auswahl-Overlay:</strong>
+            <p>Auf Worldcraft Chess pausiert das Spiel sofort und zeigt ein Auswahlfenster, in dem du deine neue Figur per Klick festlegst.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Spielende (Matt vs Patt) -->
+      <div class="rule-tab-pane" id="ruleTabEnd">
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.2rem;">⚔️</span>
+              <span>Schachmatt (Checkmate)</span>
+            </div>
+            <span class="rule-badge badge-win">SIEG (1 - 0 oder 0 - 1)</span>
+          </div>
+          <p>
+            Der König wird angegriffen (<strong>steht im Schach</strong>) und der verteidigende Spieler hat <strong>keinen legalen Zug</strong>, um die Bedrohung abzuwenden:
+          </p>
+          <ul style="font-size: 0.83rem; color: var(--text-secondary); line-height: 1.5; padding-left: 20px; margin-top: 4px;">
+            <li>Der König kann auf kein sicheres Feld fliehen.</li>
+            <li>Die angreifende Figur kann nicht geschlagen werden.</li>
+            <li>Es kann keine eigene Figur schützend dazwischengestellt werden.</li>
+          </ul>
+          <div class="rule-highlight-box box-green">
+            <strong>Ergebnis:</strong>
+            <p>Die angreifende Seite gewinnt die Partie sofort vollständig!</p>
+          </div>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span style="font-size: 1.2rem;">🤝</span>
+              <span>Patt (Stalemate)</span>
+            </div>
+            <span class="rule-badge badge-draw">UNENTSCHIEDEN (0,5 - 0,5)</span>
+          </div>
+          <p>
+            Der Spieler am Zug ist <strong>NICHT im Schach</strong>, besitzt aber <strong>keinen einzigen legalen Zug</strong> mehr (jede Figur ist unbeweglich oder jeder Königszug würde ins Schach führen).
+          </p>
+          <div class="rule-highlight-box box-amber">
+            <strong>Großer Unterschied zu Matt:</strong>
+            <p>Bei Patt gibt es <strong>keinen Gewinner</strong>! Die Partie endet sofort als <strong>Unentschieden durch Patt</strong> (Remis), selbst wenn eine Partei eine Dame mehr auf dem Brett hat.</p>
+          </div>
+        </div>
+
+        <div class="rule-card">
+          <div class="rule-card-header">
+            <div class="rule-card-title">
+              <span>Weitere Remis-Regeln (Unentschieden)</span>
+            </div>
+            <span class="rule-badge badge-draw">REMIS</span>
+          </div>
+          <p style="margin-bottom: 6px;">Eine Partie endet nach FIDE-Regelwerk ebenfalls unentschieden bei:</p>
+          <ul style="font-size: 0.83rem; color: var(--text-secondary); line-height: 1.6; padding-left: 20px;">
+            <li><strong>Dreifache Stellungswiederholung</strong>: Exakt dieselbe Konstellation (Figuren, Zugrecht, Rochaderechte) tritt dreimal auf.</li>
+            <li><strong>50-Züge-Regel</strong>: 50 aufeinanderfolgende Züge beider Spieler ohne einen Bauernzug und ohne Schlagen.</li>
+            <li><strong>Unzureichendes Material</strong>: Weder Weiß noch Schwarz können theoretisch mattsetzen (z. B. König gegen König, König + Läufer gegen König, König + Springer gegen König).</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modal 4: Admin-Trainingszentrum (Trainer-Bot vs. Royale KI Engine) -->
+  <div class="modal-overlay" id="adminTrainingModal">
+    <div class="modal-box modal-admin-training">
+      <div class="rulebook-header">
+        <div class="rulebook-header-title">
+          <span style="font-size: 1.8rem;">🤖</span>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div class="modal-title" style="margin-bottom: 0; text-align: left;">Admin KI-Trainingszentrum</div>
+              <span class="admin-badge">ADMIN EXKLUSIV</span>
+            </div>
+            <div class="modal-subtitle" style="margin-bottom: 0; text-align: left; font-size: 0.8rem;">
+              Autonome Trainingsschleife: Großmeister-Trainer vs. Royale KI Engine
+            </div>
+          </div>
+        </div>
+        <button class="modal-close-btn" id="btnCloseAdminTraining" title="Schließen">&times;</button>
+      </div>
+
+      <!-- Mode selection grid -->
+      <div class="admin-mode-grid">
+        <!-- Mode A -->
+        <div class="admin-card">
+          <div class="admin-card-title">
+            <span>Modus A: Mensch trainiert KI</span>
+            <span style="font-size: 1.1rem;">👤 ➔ 🤖</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">
+            Spiele selbst als Lehrmeister direkt auf dem Brett. Nach Spielende lernt die Royale KI weltweit über Firestore aus deinen Zügen.
+          </p>
+          <div style="font-size: 0.75rem; color: var(--accent-gold); background: rgba(214, 168, 79, 0.08); padding: 8px; border-radius: 4px; margin-top: auto; margin-bottom: 10px;">
+            🛡️ Gilt als unranked Trainingsspiel (kein ELO-Farming, 1500 ELO geschützt).
+          </div>
+          <button class="btn-secondary" id="btnAdminModeA">Jetzt manuell trainieren</button>
+        </div>
+
+        <!-- Mode B -->
+        <div class="admin-card featured">
+          <div class="admin-card-title">
+            <span>Modus B: Profi-Trainer trainiert KI</span>
+            <span style="font-size: 1.1rem;">🎓 ➔ 🤖</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">
+            Autonomes Bot-vs-Bot Training: Eine fehlerfreie Minimax-Engine (Tiefe 3–4 mit PST) spielt Serien gegen die Royale KI. Nach jedem Spiel wird der Zugverlauf in Firestore persistiert.
+          </p>
+
+          <!-- Settings for Mode B -->
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 4px;">
+            <div>
+              <label class="form-label" style="margin-bottom: 6px;">Rundenanzahl:</label>
+              <div class="admin-round-btn-group">
+                <button class="admin-round-btn" data-rounds="1">1</button>
+                <button class="admin-round-btn" data-rounds="5">5</button>
+                <button class="admin-round-btn active" data-rounds="10">10</button>
+                <button class="admin-round-btn" data-rounds="50">50</button>
+                <button class="admin-round-btn" data-rounds="100">100</button>
+                <input type="number" id="adminCustomRounds" value="10" min="1" max="500" class="input-custom" style="width: 70px; padding: 4px 8px; font-size: 0.8rem; text-align: center;">
+              </div>
+            </div>
+
+            <div>
+              <label class="form-label" style="margin-bottom: 6px;">Visualisierungs-Modus:</label>
+              <div class="admin-vis-group">
+                <label class="admin-radio-label">
+                  <input type="radio" name="adminVisMode" value="live" checked>
+                  <span>👁️ Live zuschauen (300ms Delay)</span>
+                </label>
+                <label class="admin-radio-label">
+                  <input type="radio" name="adminVisMode" value="fast">
+                  <span>⚡ Hintergrund-Simulation (Max. Speed)</span>
+                </label>
+              </div>
+            </div>
+
+            <button class="btn-primary" id="btnStartBotTraining" style="background: linear-gradient(135deg, #7C3AED, #9333EA); border: none; margin-top: 6px;">
+              ▶️ Training Starten
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
+  <script src="firebase/firebaseService.js"></script>
+
+  <!-- Application Scripts -->
+  <script src="engine/chess.js"></script>
+  <script src="renderer/boardRenderer.js"></script>
+  <script src="ai/chessAI.js"></script>
+  <script src="audio/soundManager.js"></script>
+  <script src="multiplayer/clientSocket.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
