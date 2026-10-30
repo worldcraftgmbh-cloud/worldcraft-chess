@@ -23,13 +23,19 @@ ws1.on('message', (data) => {
   if (msg.type === 'room_created') {
     roomCode = msg.roomId;
     console.log('Room created with code:', roomCode);
-    // Connect WS2
-    ws2.send(JSON.stringify({
-      type: 'join_room',
-      roomId: roomCode,
-      playerId: 'p2',
-      playerName: 'Player Black'
-    }));
+    const sendJoin = () => {
+      ws2.send(JSON.stringify({
+        type: 'join_room',
+        roomId: roomCode,
+        playerId: 'p2',
+        playerName: 'Player Black'
+      }));
+    };
+    if (ws2.readyState === 1) {
+      sendJoin();
+    } else {
+      ws2.on('open', sendJoin);
+    }
   }
 
   if (msg.type === 'match_start') {

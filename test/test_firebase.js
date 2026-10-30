@@ -57,10 +57,60 @@ async function runFirebaseTests() {
   await fetch(posUrl, { method: 'DELETE' });
   console.log('Cleaned up test position document.');
 
-  console.log('ALL FIRESTORE INTEGRATION TESTS PASSED!');
+  // 4. Test Attack Logic & Aggressive Decision Filter
+  console.log('--- TESTING ROYALE KI ATTACK & REWARD LOGIC ---');
+  const ChessEngine = require('../public/engine/chess.js');
+  const FirebaseService = require('../public/firebase/firebaseService.js');
+  const fbService = new FirebaseService();
+
+  const game = new ChessEngine.ChessGame();
+  // Set up a sharp tactical position: White can play Qxf7# or quiet move a2a3
+  // 1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6
+  game.makeMove(game.generateLegalMoves('w').find(m => fbService.moveToUci(m) === 'e2e4'));
+  game.makeMove(game.generateLegalMoves('b').find(m => fbService.moveToUci(m) === 'e7e5'));
+  game.makeMove(game.generateLegalMoves('w').find(m => fbService.moveToUci(m) === 'd1h5'));
+  game.makeMove(game.generateLegalMoves('b').find(m => fbService.moveToUci(m) === 'b8c6'));
+  game.makeMove(game.generateLegalMoves('w').find(m => fbService.moveToUci(m) === 'f1c4'));
+  game.makeMove(game.generateLegalMoves('b').find(m => fbService.moveToUci(m) === 'g8f6'));
+
+  const legalMoves = game.generateLegalMoves('w');
+  const mateMove = legalMoves.find(m => fbService.moveToUci(m) === 'h5f7');
+  const quietMove = legalMoves.find(m => fbService.moveToUci(m) === 'a2a3');
+
+  assert(mateMove !== undefined, 'Found Qxf7 mate move');
+  assert(quietMove !== undefined, 'Found quiet a2a3 move');
+
+  const mateAttackScore = fbService.calculateAttackBonus(game, mateMove);
+  const quietAttackScore = fbService.calculateAttackBonus(game, quietMove);
+
+  assert(mateAttackScore > 1500, `Mate move attack score is very high (>1500, got ${mateAttackScore})`);
+  assert(mateAttackScore > quietAttackScore + 1000, `Mate move heavily outranks quiet move (${mateAttackScore} vs ${quietAttackScore})`);
+
+  // Test Aggressive Decision Filter when Firestore has similar scores:
+  // quietMove has 3.0, mateMove has 2.8 (similar scores in top band)
+  const simulatedKnowledge = {
+    moves: {
+      'a2a3': 3.0,
+      'h5f7': 2.8
+    }
+  };
+
+  // With explorationRate = 0 (exploitation mode), the aggressive filter must pick h5f7 because of attack bonus!
+  const chosenMove = fbService.selectRoyaleAIMove(game, simulatedKnowledge, { explorationRate: 0 });
+  const chosenUci = fbService.moveToUci(chosenMove);
+  assert(chosenUci === 'h5f7', `Aggressive filter chose attacking move h5f7 over passive move a2a3 despite similar score (chose: ${chosenUci})`);
+
+  // Test 15% Exploration Mode (explorationRate = 1.0)
+  const exploredMove = fbService.selectRoyaleAIMove(game, simulatedKnowledge, { explorationRate: 1.0 });
+  assert(exploredMove !== null, 'Exploration mode returned a valid legal move');
+  const exploredAttackBonus = fbService.calculateAttackBonus(game, exploredMove);
+  assert(exploredAttackBonus > 0, 'Explored move is calculated offensive move');
+
+  console.log('ALL FIRESTORE INTEGRATION & ATTACK LOGIC TESTS PASSED!');
 }
 
 runFirebaseTests().catch(err => {
   console.error('Test error:', err);
   process.exit(1);
 });
+

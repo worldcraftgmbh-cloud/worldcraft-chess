@@ -160,10 +160,146 @@
     }
 
     /**
+     * Calculates an Attack Priority Score for a given legal move:
+     * - Priorität 1: Züge, die Schach bieten oder gegnerische Figuren schlagen.
+     * - Priorität 2: Züge, die Figuren in die gegnerische Spielfeldhälfte vorrücken (Raumgewinn).
+     * - Priorität 3: Bauernumwandlung aktiv forcieren.
+     */
+    calculateAttackBonus(game, move) {
+      if (!game || !move) return 0;
+      let score = 0;
+      const turn = game.turn;
+      const oppColor = (turn === 'w') ? 'b' : 'w';
+
+      const fromRow = Math.floor(move.from / 8);
+      const toRow = Math.floor(move.to / 8);
+
+      // 1. Priorität 1: Schach bieten (Check)
+      let givesCheck = false;
+      if (typeof game.makeMoveDirect === 'function' && typeof game.unmakeMoveDirect === 'function') {
+        const state = game.makeMoveDirect(move);
+        givesCheck = Boolean(typeof game.isInCheck === 'function' && game.isInCheck(oppColor));
+        game.unmakeMoveDirect(state);
+      }
+      if (givesCheck) {
+        score += 1000;
+      }
+
+      // Priorität 1: Gegners Figuren schlagen (Capture)
+      if (move.captured || move.isEnPassant) {
+        score += 800;
+        const capturedType = move.captured ? (move.captured.type || '').toLowerCase() : 'p';
+        const pieceValues = { q: 90, r: 50, b: 35, n: 35, p: 15, k: 0 };
+        score += (pieceValues[capturedType] || 15) * 5;
+      }
+
+      // 2. Priorität 3: Bauernumwandlung aktiv forcieren
+      if (move.promotion) {
+        score += 1200; // Unmittelbare Damen-Beförderung
+      } else if (move.piece && move.piece.type === 'p') {
+        // Bauer rückt tief vor
+        if (turn === 'w') {
+          if (toRow === 1) score += 600; // 7. Reihe
+          else if (toRow === 2) score += 300; // 6. Reihe
+        } else {
+          if (toRow === 6) score += 600; // 2. Reihe
+          else if (toRow === 5) score += 300; // 3. Reihe
+        }
+      }
+
+      // 3. Priorität 2: Züge, die Figuren in die gegnerische Spielfeldhälfte vorrücken (Raumgewinn)
+      const isInOpponentHalf = (turn === 'w') ? (toRow <= 3) : (toRow >= 4);
+      if (isInOpponentHalf) {
+        score += 250;
+      }
+
+      const forwardAdvancement = (turn === 'w') ? (fromRow - toRow) : (toRow - fromRow);
+      if (forwardAdvancement > 0) {
+        score += forwardAdvancement * 60;
+      }
+
+      return score;
+    }
+
+    /**
+     * Wählt den besten Zug für die Royale KI Engine unter Berücksichtigung von:
+     * 1. 15%-Exploration-Rate (kalkulierte offensive Züge testen)
+     * 2. Firestore-Wissen mit aggressivem Entscheidungs-Filter bei ähnlichen Werten
+     * 3. Offensiver Fallback bei unbekannten Stellungen
+     */
+    selectRoyaleAIMove(game, knowledge, options = {}) {
+      const legalMoves = game.generateLegalMoves(game.turn);
+      if (!legalMoves || legalMoves.length === 0) return null;
+
+      const explorationRate = (typeof options.explorationRate === 'number') ? options.explorationRate : 0.15;
+      const isExploring = Math.random() < explorationRate;
+
+      // Vorab Attack-Score für alle legalen Züge ermitteln
+      const scoredMoves = legalMoves.map(m => {
+        const uci = this.moveToUci(m);
+        const attackScore = this.calculateAttackBonus(game, m);
+        let firestoreScore = -Infinity;
+        if (knowledge && knowledge.moves && knowledge.moves[uci] !== undefined) {
+          firestoreScore = Number(knowledge.moves[uci]);
+        }
+        return { move: m, uci, attackScore, firestoreScore };
+      });
+
+      // --- Modus A: 15% Exploration (kalkulierte offensive Züge testen) ---
+      if (isExploring) {
+        scoredMoves.sort((a, b) => b.attackScore - a.attackScore);
+        const topAttack = scoredMoves[0].attackScore;
+        const offensiveCandidates = scoredMoves.filter(item => item.attackScore >= Math.max(100, topAttack - 150));
+        const pool = offensiveCandidates.length > 0 ? offensiveCandidates : scoredMoves.slice(0, Math.min(3, scoredMoves.length));
+        const chosen = pool[Math.floor(Math.random() * pool.length)];
+        console.log(`[Royale KI] ⚔️ 15% Exploration: Teste kalkulierten Angriffszug: ${chosen.uci} (Attack-Score: ${chosen.attackScore})`);
+        return chosen.move;
+      }
+
+      // --- Modus B: 85% Exploitation von Firestore-Wissen ---
+      const positiveKnowledgeMoves = scoredMoves.filter(item => !isNaN(item.firestoreScore) && item.firestoreScore > 0);
+
+      if (positiveKnowledgeMoves.length > 0) {
+        let maxFirestoreScore = -Infinity;
+        positiveKnowledgeMoves.forEach(item => {
+          if (item.firestoreScore > maxFirestoreScore) maxFirestoreScore = item.firestoreScore;
+        });
+
+        // "Ähnliche Werte": Alle Züge innerhalb eines engen Korridors
+        const threshold = Math.max(0.01, maxFirestoreScore - 0.75);
+        const candidateBand = positiveKnowledgeMoves.filter(item => item.firestoreScore >= threshold);
+
+        // Aggressiver Entscheidungs-Filter: Bei ähnlichen Werten immer den offensiveren Zug bevorzugen!
+        candidateBand.sort((a, b) => {
+          if (b.attackScore !== a.attackScore) {
+            return b.attackScore - a.attackScore; // Höhere Angriffspriorität gewinnt
+          }
+          return b.firestoreScore - a.firestoreScore;
+        });
+
+        const bestAttackScore = candidateBand[0].attackScore;
+        const topOffensiveBand = candidateBand.filter(item => item.attackScore === bestAttackScore);
+        const chosen = topOffensiveBand[Math.floor(Math.random() * topOffensiveBand.length)];
+
+        console.log(`[Royale KI] 🎯 Firestore-Wissen angewendet (Aggressiver Filter): ${chosen.uci} (Firestore: ${chosen.firestoreScore.toFixed(2)}, Attack-Bonus: ${chosen.attackScore})`);
+        return chosen.move;
+      }
+
+      // --- Modus C: Unbekannte Stellung -> kalkulierter offensiver Zug statt rein passivem Zufallszug ---
+      scoredMoves.sort((a, b) => b.attackScore - a.attackScore);
+      const topAttack = scoredMoves[0].attackScore;
+      const topOffensive = scoredMoves.filter(item => item.attackScore >= Math.max(100, topAttack - 150));
+      const pool = topOffensive.length > 0 ? topOffensive : scoredMoves;
+      const chosen = pool[Math.floor(Math.random() * pool.length)];
+      console.log(`[Royale KI] 🚀 Unbekannte Stellung -> offensiv orientierter Zug: ${chosen.uci} (Attack: ${chosen.attackScore})`);
+      return chosen.move;
+    }
+
+    /**
      * Updates Firestore after game completion:
-     * - Winning side moves get +Score (e.g. +1.0)
-     * - Losing side moves get -Score (e.g. -1.0)
-     * - Draws get slight adjustment
+     * - Sieg: +3.0 Punkte (extrem belohnen)
+     * - Remis: nur noch +0.05 Punkte (drastisch abwerten, Mauern unattraktiv machen)
+     * - Niederlage: -1.0 Punkte
      * - Updates total_games, ai_wins, player_wins, draws, total_positions
      */
     async recordGameOutcome(gameRecord) {
@@ -205,9 +341,9 @@
 
         let scoreDelta = 0;
         if (!isDraw && winner) {
-          scoreDelta = (movingColor === winner) ? 1.0 : -1.0;
+          scoreDelta = (movingColor === winner) ? 3.0 : -1.0; // Sieg +3.0, Niederlage -1.0
         } else {
-          scoreDelta = 0.1; // Mild reward for draw stability
+          scoreDelta = 0.05; // Remis nur noch +0.05 (drastisch abgewertet gegen Mauern)
         }
 
         if (!posMap.has(posKey)) {

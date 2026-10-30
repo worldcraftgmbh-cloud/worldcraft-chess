@@ -262,36 +262,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
       try {
         const knowledge = await firebaseService.getPositionKnowledge(currentFen);
-        if (knowledge && knowledge.moves && Object.keys(knowledge.moves).length > 0) {
-          let bestScore = -Infinity;
-          let candidates = [];
-
-          legalMoves.forEach(m => {
-            const uci = firebaseService.moveToUci(m);
-            const score = Number(knowledge.moves[uci]);
-            if (!isNaN(score) && score > 0) {
-              if (score > bestScore) {
-                bestScore = score;
-                candidates = [m];
-              } else if (score === bestScore) {
-                candidates.push(m);
-              }
-            }
-          });
-
-          if (candidates.length > 0) {
-            chosenMove = candidates[Math.floor(Math.random() * candidates.length)];
-            console.log(`[Royale KI] Gelerntes Firestore-Wissen angewendet! Zug: ${firebaseService.moveToUci(chosenMove)} (Score: ${bestScore})`);
-          }
-        }
+        // Aktives Angriffsspiel: 15% Exploration + Aggressiver Entscheidungs-Filter bei ähnlichen Werten
+        chosenMove = firebaseService.selectRoyaleAIMove(game, knowledge, { explorationRate: 0.15 });
       } catch (err) {
         console.warn('[Royale KI] Fehler bei Firestore-Abfrage:', err);
       }
 
-      // If position is untrainiert/unknown or has no positive evaluations -> choose random legal move ("rotzedoof")
       if (!chosenMove) {
-        chosenMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-        console.log(`[Royale KI] Unbekannte Stellung -> rein zufälliger legaler Zug: ${firebaseService.moveToUci(chosenMove)}`);
+        chosenMove = firebaseService.selectRoyaleAIMove(game, null, { explorationRate: 0.15 });
       }
 
       finalizeAIMove(chosenMove);
@@ -1104,40 +1082,16 @@ document.addEventListener('DOMContentLoaded', () => {
           const searchRes = fallbackAI.getBestMove(trainingGame, 3);
           chosenMove = searchRes ? searchRes.bestMove : null;
         } else {
-          // Royale KI Engine: Consult Firestore knowledge or random
+          // Royale KI Engine: Consult Firestore knowledge with aggressive attack filter & 15% exploration
           const fen = trainingGame.getFen();
+          let knowledge = null;
           try {
-            const knowledge = await firebaseService.getPositionKnowledge(fen);
-            if (knowledge && knowledge.moves && Object.keys(knowledge.moves).length > 0) {
-              const legals = trainingGame.generateLegalMoves(trainingGame.turn);
-              let bestScore = -Infinity;
-              let candidates = [];
-              legals.forEach(m => {
-                const uci = firebaseService.moveToUci(m);
-                const score = Number(knowledge.moves[uci]);
-                if (!isNaN(score) && score > 0) {
-                  if (score > bestScore) {
-                    bestScore = score;
-                    candidates = [m];
-                  } else if (score === bestScore) {
-                    candidates.push(m);
-                  }
-                }
-              });
-              if (candidates.length > 0) {
-                chosenMove = candidates[Math.floor(Math.random() * candidates.length)];
-              }
-            }
+            knowledge = await firebaseService.getPositionKnowledge(fen);
           } catch (e) {
             // ignore network jitter
           }
 
-          if (!chosenMove) {
-            const legalMoves = trainingGame.generateLegalMoves(trainingGame.turn);
-            if (legalMoves.length > 0) {
-              chosenMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-            }
-          }
+          chosenMove = firebaseService.selectRoyaleAIMove(trainingGame, knowledge, { explorationRate: 0.15 });
         }
 
         if (!chosenMove) break;
