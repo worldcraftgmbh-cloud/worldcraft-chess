@@ -49,8 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   socket.connect();
 
-  // App State: Permanenter Entwickler- & Trainingsmodus ("Testphase")
-  // Fester Standard-Spieler: Name "Jeremy", Rolle "admin", Start-ELO 1500
+  // App State & Spieler-Profil (Start-ELO 1500)
   const savedUser = JSON.parse(localStorage.getItem('worldcraft_player_profile') || '{}');
   const state = {
     gameMode: 'ai', // 'ai' | 'pass_and_play' | 'multiplayer'
@@ -63,26 +62,18 @@ document.addEventListener('DOMContentLoaded', () => {
     clockTimer: null,
     historyIndex: -1,
     currentUser: {
-      id: savedUser.id || 'user_jeremy_admin',
-      name: 'Jeremy',
-      role: 'admin',
-      rating: 1500,
+      id: savedUser.id || ('user_' + Math.random().toString(36).substring(2, 9)),
+      name: savedUser.name || 'Jeremy',
+      rating: savedUser.rating || 1500,
       rankedMatches: savedUser.rankedMatches || { played: 0, wins: 0, losses: 0, draws: 0 },
       aiMatches: savedUser.aiMatches || { played: 0, wins: 0, losses: 0, draws: 0 }
-    },
-    isTrainingActive: false,
-    trainingCancelled: false
+    }
   };
 
-  // Enforce Jeremy Admin profile in permanent testphase
-  state.currentUser.name = 'Jeremy';
-  state.currentUser.role = 'admin';
-  if (!state.currentUser.rating) state.currentUser.rating = 1500;
   saveUserProfile();
 
   function saveUserProfile() {
     localStorage.setItem('worldcraft_player_profile', JSON.stringify(state.currentUser));
-    localStorage.setItem('worldcraft_user_role', state.currentUser.role);
     localStorage.setItem('worldcraft_user_rating', state.currentUser.rating);
   }
 
@@ -332,17 +323,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateClocksDisplay() {
-    const whiteEl = document.getElementById('whiteClock');
-    const blackEl = document.getElementById('blackClock');
+    const bottomClock = document.getElementById('whiteClock');
+    const topClock = document.getElementById('blackClock');
 
-    whiteEl.innerText = formatTime(state.whiteTime);
-    blackEl.innerText = formatTime(state.blackTime);
+    const isFlipped = renderer.options.flipped;
+    const bottomTime = isFlipped ? state.blackTime : state.whiteTime;
+    const topTime = isFlipped ? state.whiteTime : state.blackTime;
+    const bottomTurn = isFlipped ? (game.turn === 'b') : (game.turn === 'w');
+    const topTurn = isFlipped ? (game.turn === 'w') : (game.turn === 'b');
 
-    whiteEl.classList.toggle('active-turn', game.turn === 'w');
-    blackEl.classList.toggle('active-turn', game.turn === 'b');
+    bottomClock.innerText = formatTime(bottomTime);
+    topClock.innerText = formatTime(topTime);
 
-    whiteEl.classList.toggle('low-time', state.whiteTime < 30);
-    blackEl.classList.toggle('low-time', state.blackTime < 30);
+    bottomClock.classList.toggle('active-turn', bottomTurn);
+    topClock.classList.toggle('active-turn', topTurn);
+
+    bottomClock.classList.toggle('low-time', bottomTime < 30);
+    topClock.classList.toggle('low-time', topTime < 30);
   }
 
   function handleTimeout(winner) {
@@ -576,32 +573,108 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('gameOverModal').classList.add('active');
   }
 
-  // 7. Multiplayer Handlers
+  // 7. Multiplayer Handlers & Invite Link Sharing
+  function copyInviteLink(code, btnEl, textEl) {
+    const cleanCode = (code || '').trim().toUpperCase();
+    if (!cleanCode) return;
+    const fullUrl = `${window.location.origin}${window.location.pathname}?room=${cleanCode}`;
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      if (btnEl) btnEl.classList.add('copied');
+      if (textEl) textEl.innerText = '✓ Link kopiert!';
+      setTimeout(() => {
+        if (btnEl) btnEl.classList.remove('copied');
+        if (textEl) textEl.innerText = 'Einladungs-Link kopieren';
+      }, 3500);
+    }).catch(() => {
+      prompt('Kopiere diesen Einladungs-Link für deinen Freund:', fullUrl);
+    });
+  }
+
   function handleRoomCreated(data) {
-    document.getElementById('multiStatus').innerText = `Raum erstellt: ${data.roomId}. Warte auf Gegner...`;
-    document.getElementById('joinRoomInput').value = data.roomId;
-    state.playerColor = data.color;
-    if (data.color === 'b') {
-      renderer.options.flipped = true;
-      renderer.draw();
+    const codeEl = document.getElementById('displayRoomCode');
+    const boxEl = document.getElementById('activeRoomBox');
+    const inputEl = document.getElementById('joinRoomInput');
+    const statusEl = document.getElementById('multiStatus');
+
+    if (codeEl) codeEl.innerText = data.roomId;
+    if (boxEl) boxEl.style.display = 'block';
+    if (inputEl) inputEl.value = data.roomId;
+
+    state.playerColor = data.color || 'w';
+    state.gameMode = 'multiplayer';
+    renderer.options.flipped = (state.playerColor === 'b');
+
+    // Switch gameMode select to multiplayer & show box
+    const modeSelect = document.getElementById('gameModeSelect');
+    if (modeSelect) modeSelect.value = 'multiplayer';
+    document.getElementById('aiSettingsBox').style.display = 'none';
+    document.getElementById('multiSettingsBox').style.display = 'block';
+
+    // Auto copy invite link for convenience!
+    copyInviteLink(data.roomId, document.getElementById('btnCopyInviteLink'), document.getElementById('copyInviteText'));
+
+    if (statusEl) {
+      statusEl.innerHTML = `🟢 <strong>Raum ${data.roomId} erstellt!</strong> Link wurde in die Zwischenablage kopiert. Sende ihn deinem Freund!`;
     }
   }
 
   function handleMatchStart(data) {
-    document.getElementById('multiStatus').innerText = `Partie gestartet! Gegner: ${data.white.id === socket.currentRoom ? data.black.name : data.white.name}`;
+    if (data.yourColor && data.yourColor !== 'spectator') {
+      state.playerColor = data.yourColor;
+    } else if (socket.playerColor) {
+      state.playerColor = socket.playerColor;
+    }
+
+    state.gameMode = 'multiplayer';
+    renderer.options.flipped = (state.playerColor === 'b');
+    renderer.isLocked = false;
+    closeGameStartModal();
+
+    // Determine my data vs opponent data
+    const isMeWhite = state.playerColor === 'w';
+    const myData = isMeWhite ? data.white : data.black;
+    const oppData = isMeWhite ? data.black : data.white;
+
+    // Bottom bar: YOU
+    const whitePlayerNameEl = document.getElementById('whitePlayerName');
+    const whitePlayerRatingEl = document.getElementById('whitePlayerRating');
+    const whiteAvatarEl = document.getElementById('whiteAvatar');
+    if (whitePlayerNameEl) whitePlayerNameEl.innerText = myData.name || state.currentUser.name;
+    if (whitePlayerRatingEl) whitePlayerRatingEl.innerText = `${myData.rating || 1500} ELO`;
+    if (whiteAvatarEl) whiteAvatarEl.innerText = (myData.name || 'J').charAt(0).toUpperCase();
+
+    // Top bar: OPPONENT
+    const oppNameEl = document.getElementById('opponentName');
+    const oppTitleEl = document.getElementById('opponentTitle');
+    const blackPlayerRatingEl = document.getElementById('blackPlayerRating');
+    const blackAvatarEl = document.getElementById('blackAvatar');
+    if (oppNameEl) oppNameEl.innerText = oppData.name || 'Online-Freund';
+    if (oppTitleEl) oppTitleEl.innerText = 'FREUND';
+    if (blackPlayerRatingEl) blackPlayerRatingEl.innerText = `${oppData.rating || 1500} ELO`;
+    if (blackAvatarEl) blackAvatarEl.innerText = (oppData.name || 'F').charAt(0).toUpperCase();
+
+    // Hide waiting pulse
+    const pulseEl = document.getElementById('multiWaitingPulse');
+    if (pulseEl) pulseEl.style.display = 'none';
+
+    // Update status banner
+    const statusEl = document.getElementById('multiStatus');
+    if (statusEl) {
+      statusEl.innerHTML = `⚔️ <strong>Match gestartet!</strong> Du spielst ${state.playerColor === 'w' ? '⚪ Weiß' : '⚫ Schwarz'} gegen <strong>${oppData.name}</strong>.`;
+    }
+
+    // Load initial position and clear selection
     game.loadFen(data.fen);
     renderer.clearSelection();
+    renderer.setLastMove(null, null);
     renderer.draw();
 
-    document.getElementById('whitePlayerName').innerText = data.white.name;
-    document.getElementById('whitePlayerRating').innerText = `${data.white.rating} ELO`;
-    document.getElementById('blackPlayerName').innerText = data.black.name;
-    document.getElementById('blackPlayerRating').innerText = `${data.black.rating} ELO`;
-
+    // Clocks
     state.whiteTime = data.timeControl.base;
     state.blackTime = data.timeControl.base;
     startClocks();
     updateUI();
+    updateProfileDisplay();
   }
 
   function handleRemoteMove(data) {
@@ -643,70 +716,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('pingBadge').innerText = `${ms} ms`;
   }
 
-  // 8. Reinforcement Learning Lab Controls
-  document.getElementById('btnStartTraining').onclick = () => {
-    const games = parseInt(document.getElementById('trainGamesInput').value, 10) || 5;
-    const progressFill = document.getElementById('trainProgressFill');
-    const trainStatusText = document.getElementById('trainStatusText');
 
-    trainStatusText.innerText = `Trainiere ${games} Selbstspiel-Partien...`;
-    progressFill.style.width = '0%';
-
-    if (aiWorker) {
-      const onTrainProgress = (e) => {
-        if (e.data.type === 'trainProgress') {
-          const prog = e.data.progress;
-          const pct = Math.round((prog.gameIndex / prog.totalGames) * 100);
-          progressFill.style.width = `${pct}%`;
-          trainStatusText.innerText = `Partie ${prog.gameIndex}/${prog.totalGames}: ${prog.result}`;
-          updateWeightsUI(prog.weights);
-        } else if (e.data.type === 'trainComplete') {
-          aiWorker.removeEventListener('message', onTrainProgress);
-          trainStatusText.innerText = `Training abgeschlossen! ${e.data.stats.gamesTrained} Partien absolviert.`;
-          document.getElementById('policySizeBadge').innerText = `${e.data.stats.policySize} Stellungen`;
-        }
-      };
-      aiWorker.addEventListener('message', onTrainProgress);
-      aiWorker.postMessage({ type: 'train', games });
-    } else {
-      // Main thread
-      fallbackAI.trainSelfPlay(games, (prog) => {
-        const pct = Math.round((prog.gameIndex / prog.totalGames) * 100);
-        progressFill.style.width = `${pct}%`;
-        trainStatusText.innerText = `Partie ${prog.gameIndex}/${prog.totalGames}: ${prog.result}`;
-        updateWeightsUI(prog.weights);
-      }).then((stats) => {
-        trainStatusText.innerText = `Training abgeschlossen!`;
-        document.getElementById('policySizeBadge').innerText = `${stats.policySize} Stellungen`;
-      });
-    }
-  };
-
-  function updateWeightsUI(weights) {
-    document.getElementById('weightMaterial').innerText = weights.material.toFixed(2);
-    document.getElementById('weightPst').innerText = weights.pst.toFixed(2);
-    document.getElementById('weightMobility').innerText = weights.mobility.toFixed(2);
-    document.getElementById('weightKing').innerText = weights.kingSafety.toFixed(2);
-    document.getElementById('weightCenter').innerText = weights.centerControl.toFixed(2);
-  }
-
-  // Weights Export / Import
-  document.getElementById('btnExportWeights').onclick = () => {
-    const w = fallbackAI.getWeights();
-    const blob = new Blob([JSON.stringify(w, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `chess_ai_weights_gen.json`;
-    a.click();
-  };
-
-  document.getElementById('btnResetWeights').onclick = () => {
-    fallbackAI.resetWeights();
-    updateWeightsUI(fallbackAI.getWeights());
-    if (aiWorker) aiWorker.postMessage({ type: 'setWeights', weights: fallbackAI.getWeights() });
-    alert('KI-Gewichte erfolgreich auf Werkseinstellungen zurückgesetzt.');
-  };
 
   // 9. Leaderboard Fetch & Rendering
   async function loadLeaderboard() {
@@ -816,39 +826,66 @@ document.addEventListener('DOMContentLoaded', () => {
     state.aiDifficulty = e.target.value;
   };
 
-  // Multiplayer Buttons
-  document.getElementById('btnCreateRoom').onclick = () => {
-    const name = document.getElementById('multiPlayerName').value || state.currentUser.name || 'Meister_Weiß';
+  // Multiplayer Buttons & Invite Sharing
+  document.getElementById('btnCreateRoom')?.addEventListener('click', () => {
+    const name = document.getElementById('multiPlayerName')?.value || state.currentUser.name || 'Jeremy';
+    state.currentUser.name = name;
+    saveUserProfile();
     socket.createRoom(null, name, 'w', { base: 600, inc: 0 });
-  };
+  });
 
-  document.getElementById('btnJoinRoom').onclick = () => {
-    const code = document.getElementById('joinRoomInput').value.trim();
-    const name = document.getElementById('multiPlayerName').value || state.currentUser.name || 'Meister_Gast';
+  document.getElementById('btnCopyInviteLink')?.addEventListener('click', () => {
+    const code = document.getElementById('displayRoomCode')?.innerText || socket.currentRoom || '';
+    copyInviteLink(code, document.getElementById('btnCopyInviteLink'), document.getElementById('copyInviteText'));
+  });
+
+  document.getElementById('btnJoinRoom')?.addEventListener('click', () => {
+    const code = (document.getElementById('joinRoomInput')?.value || '').trim().toUpperCase();
+    const name = document.getElementById('multiPlayerName')?.value || state.currentUser.name || 'Gastspieler';
     if (!code) {
-      alert('Bitte gib einen Raum-Code ein!');
+      alert('Bitte gib einen 6-stelligen Raum-Code ein!');
       return;
     }
+    state.currentUser.name = name;
+    saveUserProfile();
     socket.joinRoom(code, null, name);
-  };
+  });
 
-  document.getElementById('btnQuickMatch').onclick = () => {
-    const name = document.getElementById('multiPlayerName').value || state.currentUser.name || 'Meister_Schnell';
-    document.getElementById('multiStatus').innerText = 'Suche nach passendem Gegner im ELO-Bereich...';
+  document.getElementById('btnQuickMatch')?.addEventListener('click', () => {
+    const name = document.getElementById('multiPlayerName')?.value || state.currentUser.name || 'Jeremy';
+    const statusEl = document.getElementById('multiStatus');
+    if (statusEl) statusEl.innerText = 'Suche nach passendem Gegner im ELO-Bereich...';
     socket.quickMatch(null, name, state.currentUser.rating || 1500, { base: 600, inc: 0 });
-  };
+  });
 
-  document.getElementById('btnModalNewGame').onclick = () => {
-    document.getElementById('gameOverModal').classList.remove('active');
-    openGameStartModal();
-  };
+  document.getElementById('btnModalNewGame')?.addEventListener('click', () => {
+    document.getElementById('gameOverModal')?.classList.remove('active');
+    openGameStartModal('ai');
+  });
+
+  // Sync Player Names across inputs
+  const multiPlayerNameInput = document.getElementById('multiPlayerName');
+  const startModalNameInput = document.getElementById('startModalPlayerName');
+
+  function updateUserName(newName) {
+    const trimmed = (newName || '').trim();
+    if (trimmed) {
+      state.currentUser.name = trimmed;
+      saveUserProfile();
+      if (multiPlayerNameInput && multiPlayerNameInput.value !== trimmed) multiPlayerNameInput.value = trimmed;
+      if (startModalNameInput && startModalNameInput.value !== trimmed) startModalNameInput.value = trimmed;
+      updateProfileDisplay();
+    }
+  }
+
+  multiPlayerNameInput?.addEventListener('input', (e) => updateUserName(e.target.value));
+  startModalNameInput?.addEventListener('input', (e) => updateUserName(e.target.value));
 
   // 11. Interaktives Regel-Kompendium ("Regelbuch")
   const rulebookModal = document.getElementById('rulebookModal');
   const openRulebook = () => {
     if (rulebookModal) {
       rulebookModal.classList.add('active');
-      // Ensure the first tab is selected and shown
       const firstBtn = rulebookModal.querySelector('.rule-tab-btn');
       const firstPane = document.getElementById('ruleTabPieces');
       if (firstBtn && firstPane) {
@@ -868,19 +905,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnCloseRulebook')?.addEventListener('click', closeRulebook);
 
   rulebookModal?.addEventListener('click', (e) => {
-    if (e.target === rulebookModal) {
-      closeRulebook();
-    }
-  });
-
-  window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      closeRulebook();
-      closeAdminTraining();
-      closeGameStartModal();
-      document.getElementById('promotionModal')?.classList.remove('active');
-      document.getElementById('gameOverModal')?.classList.remove('active');
-    }
+    if (e.target === rulebookModal) closeRulebook();
   });
 
   document.querySelectorAll('.rule-tab-btn').forEach(btn => {
@@ -893,301 +918,119 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   });
 
-  // 12. Admin KI-Trainingszentrum (Trainer-Bot vs. Royale KI Engine)
-  const adminTrainingModal = document.getElementById('adminTrainingModal');
-  const btnHeaderAdminTraining = document.getElementById('btnHeaderAdminTraining');
-  const btnCloseAdminTraining = document.getElementById('btnCloseAdminTraining');
-  const adminStatusText = document.getElementById('adminStatusText');
-
-  function checkAdminStatus() {
-    // Permanenter Entwickler- & Trainingsmodus ("Testphase"): Admin immer aktiv
-    state.currentUser.role = 'admin';
-    if (btnHeaderAdminTraining) {
-      btnHeaderAdminTraining.style.display = 'inline-flex';
-    }
-    if (adminStatusText) {
-      adminStatusText.innerText = 'Admin-Modus: Aktiviert';
-      adminStatusText.classList.add('active');
-    }
-  }
-
-  adminStatusText?.addEventListener('click', () => {
-    checkAdminStatus();
-  });
-
-  // Listen to player name changes in multiplayer settings
-  document.getElementById('multiPlayerName')?.addEventListener('input', (e) => {
-    const val = e.target.value.trim();
-    if (val) {
-      state.currentUser.name = val;
-      if (val.toLowerCase() === 'admin') {
-        state.currentUser.role = 'admin';
-      }
-      saveUserProfile();
-      checkAdminStatus();
-      updateProfileDisplay();
-    }
-  });
-
-  const openAdminTraining = () => {
-    if (adminTrainingModal) adminTrainingModal.classList.add('active');
-  };
-  const closeAdminTraining = () => {
-    if (adminTrainingModal) adminTrainingModal.classList.remove('active');
-  };
-
-  btnHeaderAdminTraining?.addEventListener('click', openAdminTraining);
-  btnCloseAdminTraining?.addEventListener('click', closeAdminTraining);
-  adminTrainingModal?.addEventListener('click', (e) => {
-    if (e.target === adminTrainingModal) closeAdminTraining();
-  });
-
-  // Mode A button
-  document.getElementById('btnAdminModeA')?.addEventListener('click', () => {
-    closeAdminTraining();
-    state.gameMode = 'ai';
-    document.getElementById('gameModeSelect').value = 'ai';
-    document.getElementById('aiSettingsBox').style.display = 'block';
-    document.getElementById('multiSettingsBox').style.display = 'none';
-    updateProfileDisplay();
-    openGameStartModal();
-  });
-
-  // Mode B round selection
-  let selectedRounds = 10;
-  document.querySelectorAll('.admin-round-btn').forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll('.admin-round-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      selectedRounds = parseInt(btn.dataset.rounds, 10);
-      document.getElementById('adminCustomRounds').value = selectedRounds;
-    };
-  });
-
-  document.getElementById('adminCustomRounds')?.addEventListener('input', (e) => {
-    const val = parseInt(e.target.value, 10);
-    if (!isNaN(val) && val > 0) {
-      selectedRounds = Math.min(500, val);
-      document.querySelectorAll('.admin-round-btn').forEach(b => {
-        b.classList.toggle('active', parseInt(b.dataset.rounds, 10) === selectedRounds);
-      });
-    }
-  });
-
-  // Compact Minimizable Dashboard at Board Edge
-  const compactDashboard = document.getElementById('compactTrainingDashboard');
-  const compactRoundText = document.getElementById('compactRoundText');
-  const compactProgressFill = document.getElementById('compactProgressFill');
-  const compactScoreTrainer = document.getElementById('compactScoreTrainer');
-  const compactScoreRoyale = document.getElementById('compactScoreRoyale');
-  const compactScoreDraws = document.getElementById('compactScoreDraws');
-  const compactLogText = document.getElementById('compactLogText');
-  const btnToggleCompact = document.getElementById('btnToggleCompactTrain');
-  const btnCompactCancel = document.getElementById('btnCompactCancel');
-  const btnStartBot = document.getElementById('btnStartBotTraining');
-
-  btnToggleCompact?.addEventListener('click', () => {
-    compactDashboard.classList.toggle('minimized');
-    const isMin = compactDashboard.classList.contains('minimized');
-    btnToggleCompact.innerText = isMin ? '+' : '–';
-  });
-
-  btnCompactCancel?.addEventListener('click', () => {
-    if (state.isTrainingActive) {
-      state.trainingCancelled = true;
-      if (compactLogText) compactLogText.innerText = '⚠️ Abbruch angefordert...';
-      btnCompactCancel.disabled = true;
-      btnCompactCancel.innerText = 'Stoppt...';
-    }
-  });
-
-  function updateCompactLog(msg) {
-    if (compactLogText) {
-      compactLogText.innerText = msg;
-    }
-  }
-
-  // Bot-vs-Bot Training Loop (Modus B)
-  btnStartBot?.addEventListener('click', async () => {
-    if (state.isTrainingActive) return;
-
-    // Automatically close the big modal so it's not in the way!
-    closeAdminTraining();
-
-    state.isTrainingActive = true;
-    state.trainingCancelled = false;
-    btnStartBot.disabled = true;
-    btnStartBot.innerText = 'Training läuft...';
-    if (btnCompactCancel) {
-      btnCompactCancel.disabled = false;
-      btnCompactCancel.innerText = '⏹️ Stop';
-    }
-
-    // Show compact dashboard at board edge
-    if (compactDashboard) {
-      compactDashboard.classList.remove('minimized');
-      compactDashboard.classList.add('active');
-    }
-
-    const totalRounds = selectedRounds;
-    const visMode = document.querySelector('input[name="adminVisMode"]:checked')?.value || 'live';
-    const isLive = visMode === 'live';
-
-    let scores = { trainer: 0, royale: 0, draws: 0 };
-    if (compactScoreTrainer) compactScoreTrainer.innerText = '0';
-    if (compactScoreRoyale) compactScoreRoyale.innerText = '0';
-    if (compactScoreDraws) compactScoreDraws.innerText = '0';
-    if (compactProgressFill) compactProgressFill.style.width = '0%';
-
-    updateCompactLog(`🚀 Start: ${totalRounds} Partien (${isLive ? 'Live' : 'Max-Speed'})...`);
-
-    for (let round = 1; round <= totalRounds; round++) {
-      if (state.trainingCancelled) {
-        updateCompactLog(`🛑 Training vorzeitig abgebrochen.`);
-        break;
-      }
-
-      // Alternating colors
-      const trainerColor = (round % 2 === 1) ? 'w' : 'b';
-      const royaleColor = (trainerColor === 'w') ? 'b' : 'w';
-
-      if (compactRoundText) {
-        compactRoundText.innerText = `Partie ${round}/${totalRounds} (${trainerColor === 'w' ? 'Trainer ⚪ vs 🤖 ⚫' : '🤖 ⚪ vs Trainer ⚫'})`;
-      }
-      if (compactProgressFill) {
-        compactProgressFill.style.width = `${Math.round(((round - 1) / totalRounds) * 100)}%`;
-      }
-
-      const trainingGame = isLive ? game : new ChessEngine.ChessGame();
-      if (isLive) {
-        trainingGame.reset();
-        renderer.setLastMove(null, null);
-        renderer.clearSelection();
-        renderer.draw();
-        updateUI();
-      }
-
-      let moveCount = 0;
-
-      // Niemals aufgeben: Partie läuft vollständig bis zum regulären FIDE-Spielende!
-      // (Schachmatt, Patt, unzureichendes Material, 50-Züge-Regel, 3-fache Stellungswiederholung)
-      while (!trainingGame.getGameStatus().isGameOver) {
-        if (state.trainingCancelled) break;
-
-        const currentTurn = trainingGame.turn;
-        const isTrainerTurn = (currentTurn === trainerColor);
-        let chosenMove = null;
-
-        if (isTrainerTurn) {
-          // Profi-Trainer: Strong Minimax at depth 3
-          const searchRes = fallbackAI.getBestMove(trainingGame, 3);
-          chosenMove = searchRes ? searchRes.bestMove : null;
-        } else {
-          // Royale KI Engine: Consult Firestore knowledge with aggressive attack filter & 15% exploration
-          const fen = trainingGame.getFen();
-          let knowledge = null;
-          try {
-            knowledge = await firebaseService.getPositionKnowledge(fen);
-          } catch (e) {
-            // ignore network jitter
-          }
-
-          chosenMove = firebaseService.selectRoyaleAIMove(trainingGame, knowledge, { explorationRate: 0.15 });
-        }
-
-        if (!chosenMove) break;
-
-        const res = trainingGame.makeMove(chosenMove);
-        if (!res) break;
-
-        moveCount++;
-
-        if (isLive) {
-          renderer.setLastMove(res.from, res.to);
-          renderer.draw();
-          updateUI();
-          await new Promise(resolve => setTimeout(resolve, 250));
-        } else if (moveCount % 8 === 0) {
-          // Yield to UI thread
-          await new Promise(resolve => setTimeout(resolve, 0));
-        }
-      }
-
-      if (state.trainingCancelled) break;
-
-      // Match finished strictly under FIDE rules
-      const status = trainingGame.getGameStatus();
-      const isCheckmate = (status.status === 'checkmate');
-      const isDraw = !isCheckmate;
-      const winner = isCheckmate ? status.winner : null;
-
-      if (status.status === 'stalemate') {
-        scores.draws++;
-        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
-        updateCompactLog(`🤝 Partie ${round}: Remis durch reguläres Patt! Speichere Firestore...`);
-      } else if (status.status === 'insufficient_material') {
-        scores.draws++;
-        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
-        updateCompactLog(`🤝 Partie ${round}: Remis durch unzureichendes Material. Speichere Firestore...`);
-      } else if (status.status === 'fifty_move_rule') {
-        scores.draws++;
-        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
-        updateCompactLog(`🤝 Partie ${round}: Remis durch 50-Züge-Regel. Speichere Firestore...`);
-      } else if (status.status === 'threefold_repetition') {
-        scores.draws++;
-        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
-        updateCompactLog(`🤝 Partie ${round}: Remis durch 3-fache Stellungswiederholung. Speichere Firestore...`);
-      } else if (winner === trainerColor) {
-        scores.trainer++;
-        if (compactScoreTrainer) compactScoreTrainer.innerText = scores.trainer;
-        updateCompactLog(`🏆 Partie ${round}: Trainer gewinnt durch Schachmatt. Speichere Firestore...`);
-      } else if (winner === royaleColor) {
-        scores.royale++;
-        if (compactScoreRoyale) compactScoreRoyale.innerText = scores.royale;
-        updateCompactLog(`⭐ Partie ${round}: Royale KI gewinnt durch Schachmatt! Speichere Firestore...`);
-      } else {
-        scores.draws++;
-        if (compactScoreDraws) compactScoreDraws.innerText = scores.draws;
-        updateCompactLog(`🤝 Partie ${round}: Remis (${status.reason || 'FIDE'}). Speichere Firestore...`);
-      }
-
-      // Persist to Firebase Firestore after EVERY match!
-      try {
-        await firebaseService.recordGameOutcome({
-          moveHistory: trainingGame.moveHistory,
-          winner,
-          isDraw,
-          aiColor: royaleColor
-        });
-        updateCompactLog(`💾 Firestore synchronisiert (+1 Partie).`);
-      } catch (err) {
-        updateCompactLog(`⚠️ Firestore-Fehler: ${err.message}`);
-      }
-    }
-
-    if (compactProgressFill) compactProgressFill.style.width = '100%';
-    if (compactRoundText) compactRoundText.innerText = `Training abgeschlossen!`;
-    updateCompactLog(`🏁 Ergebnis: Trainer ${scores.trainer} | KI ${scores.royale} | Remis ${scores.draws}`);
-    state.isTrainingActive = false;
-    btnStartBot.disabled = false;
-    btnStartBot.innerText = '▶️ Training Starten';
-    if (btnCompactCancel) btnCompactCancel.disabled = true;
-  });
-
-  // 13. Schlanker Spielstart: Farbwahl-Dialog (Weiß spielen, Schwarz spielen, Zufall)
+  // 12. Spielstart-Dialog & Online Matchmaking mit Freunden
   const gameStartModal = document.getElementById('gameStartModal');
 
-  function openGameStartModal() {
+  function openGameStartModal(tab = 'ai') {
     if (!gameStartModal) return;
     renderer.isLocked = true;
     stopClocks();
+
+    // Switch to desired pane
+    switchStartModalTab(tab);
     gameStartModal.classList.add('active');
   }
 
   function closeGameStartModal() {
     if (gameStartModal) gameStartModal.classList.remove('active');
+    renderer.isLocked = false;
   }
 
+  function switchStartModalTab(tab) {
+    const pills = {
+      ai: document.getElementById('pillModeAi'),
+      friend: document.getElementById('pillModeFriend'),
+      passplay: document.getElementById('pillModePassPlay')
+    };
+    const panes = {
+      ai: document.getElementById('paneModeAi'),
+      friend: document.getElementById('paneModeFriend'),
+      passplay: document.getElementById('paneModePassPlay')
+    };
+
+    Object.values(pills).forEach(p => p?.classList.remove('active'));
+    Object.values(panes).forEach(p => {
+      if (p) p.style.display = 'none';
+    });
+
+    if (pills[tab]) pills[tab].classList.add('active');
+    if (panes[tab]) {
+      panes[tab].style.display = (tab === 'ai' ? 'block' : 'flex');
+    }
+  }
+
+  // Header "Mit Freund spielen" Button
+  document.getElementById('btnHeaderPlayFriend')?.addEventListener('click', () => {
+    openGameStartModal('friend');
+  });
+
+  // Modal Mode Switcher Tabs
+  document.getElementById('pillModeAi')?.addEventListener('click', () => switchStartModalTab('ai'));
+  document.getElementById('pillModeFriend')?.addEventListener('click', () => switchStartModalTab('friend'));
+  document.getElementById('pillModePassPlay')?.addEventListener('click', () => switchStartModalTab('passplay'));
+  document.getElementById('btnCloseStartModal')?.addEventListener('click', closeGameStartModal);
+
+  gameStartModal?.addEventListener('click', (e) => {
+    if (e.target === gameStartModal) closeGameStartModal();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeRulebook();
+      closeGameStartModal();
+      document.getElementById('promotionModal')?.classList.remove('active');
+      document.getElementById('gameOverModal')?.classList.remove('active');
+    }
+  });
+
+  // Modal Option A: Create Room for Friend
+  document.getElementById('btnModalCreateFriendRoom')?.addEventListener('click', () => {
+    const pName = document.getElementById('startModalPlayerName')?.value || state.currentUser.name || 'Jeremy';
+    updateUserName(pName);
+
+    // Switch mode
+    state.gameMode = 'multiplayer';
+    const modeSelect = document.getElementById('gameModeSelect');
+    if (modeSelect) modeSelect.value = 'multiplayer';
+    document.getElementById('aiSettingsBox').style.display = 'none';
+    document.getElementById('multiSettingsBox').style.display = 'block';
+
+    closeGameStartModal();
+    socket.createRoom(null, pName, 'w', { base: 600, inc: 0 });
+  });
+
+  // Modal Option B: Join Room via Code
+  document.getElementById('btnModalJoinRoom')?.addEventListener('click', () => {
+    const code = (document.getElementById('modalJoinRoomInput')?.value || '').trim().toUpperCase();
+    const pName = document.getElementById('startModalPlayerName')?.value || state.currentUser.name || 'Gastspieler';
+    if (!code) {
+      alert('Bitte gib den 6-stelligen Raum-Code deines Freundes ein!');
+      return;
+    }
+    updateUserName(pName);
+
+    state.gameMode = 'multiplayer';
+    const modeSelect = document.getElementById('gameModeSelect');
+    if (modeSelect) modeSelect.value = 'multiplayer';
+    document.getElementById('aiSettingsBox').style.display = 'none';
+    document.getElementById('multiSettingsBox').style.display = 'block';
+
+    closeGameStartModal();
+    socket.joinRoom(code, null, pName);
+  });
+
+  // Modal Option C: Pass & Play
+  document.getElementById('btnStartPassPlay')?.addEventListener('click', () => {
+    state.gameMode = 'pass_and_play';
+    const modeSelect = document.getElementById('gameModeSelect');
+    if (modeSelect) modeSelect.value = 'pass_and_play';
+    document.getElementById('aiSettingsBox').style.display = 'none';
+    document.getElementById('multiSettingsBox').style.display = 'none';
+
+    launchGameWithColor('w');
+  });
+
+  // Start game with chosen color (AI / Pass & Play)
   function launchGameWithColor(chosenColor) {
     let finalColor = chosenColor;
     if (finalColor === 'random') {
@@ -1197,15 +1040,6 @@ document.addEventListener('DOMContentLoaded', () => {
     state.playerColor = finalColor;
     renderer.options.flipped = (finalColor === 'b');
 
-    // Fester Standard-Spieler: Jeremy (Admin, 1500 ELO)
-    state.currentUser.name = 'Jeremy';
-    state.currentUser.role = 'admin';
-    state.currentUser.rating = 1500;
-    saveUserProfile();
-    checkAdminStatus();
-    updateProfileDisplay();
-
-    // Dialog sofort schließen, Brett freigeben und Spiel ohne Vorbedingungen starten
     closeGameStartModal();
     game.reset();
     renderer.setLastMove(null, null);
@@ -1217,26 +1051,72 @@ document.addEventListener('DOMContentLoaded', () => {
     renderer.isLocked = false;
     startClocks();
     updateUI();
+    updateProfileDisplay();
 
-    // Falls Schwarz gewählt: Royale KI Engine führt ersten Zug als Weiß aus
+    // Falls Schwarz gegen KI gewählt: Royale KI Engine zieht als Weiß
     if (state.playerColor === 'b' && state.gameMode === 'ai') {
       triggerAIMove();
     }
   }
 
-  // Jeder Klick auf "Weiß spielen", "Zufall" oder "Schwarz spielen" startet das Spiel sofort!
+  // Clicks on AI Color Cards
   document.querySelectorAll('.start-color-card').forEach(card => {
     card.onclick = () => {
+      state.gameMode = 'ai';
+      const modeSelect = document.getElementById('gameModeSelect');
+      if (modeSelect) modeSelect.value = 'ai';
+      document.getElementById('aiSettingsBox').style.display = 'block';
+      document.getElementById('multiSettingsBox').style.display = 'none';
       const color = card.dataset.color || 'w';
       launchGameWithColor(color);
     };
   });
 
-  // Initial setup
-  checkAdminStatus();
+  // Initial Setup & Automatic URL Parameter Room Join
+  if (multiPlayerNameInput) multiPlayerNameInput.value = state.currentUser.name;
+  if (startModalNameInput) startModalNameInput.value = state.currentUser.name;
+
   updateProfileDisplay();
   startClocks();
   updateUI();
   loadLeaderboard();
-  openGameStartModal(); // Clean dialog on startup!
+
+  // Check if player opened an invite link (?room=XYZ)
+  const urlParams = new URLSearchParams(window.location.search);
+  const friendRoomCode = urlParams.get('room');
+
+  if (friendRoomCode) {
+    const cleanCode = friendRoomCode.trim().toUpperCase();
+    state.gameMode = 'multiplayer';
+    const modeSelect = document.getElementById('gameModeSelect');
+    if (modeSelect) modeSelect.value = 'multiplayer';
+    document.getElementById('aiSettingsBox').style.display = 'none';
+    document.getElementById('multiSettingsBox').style.display = 'block';
+
+    const joinRoomInput = document.getElementById('joinRoomInput');
+    if (joinRoomInput) joinRoomInput.value = cleanCode;
+
+    const statusEl = document.getElementById('multiStatus');
+    if (statusEl) {
+      statusEl.innerHTML = `⏳ <strong>Trete Raum ${cleanCode} bei...</strong> Warte auf Verbindung mit deinem Freund!`;
+    }
+
+    const doJoin = () => {
+      const pName = state.currentUser.name || 'Gastspieler';
+      socket.joinRoom(cleanCode, null, pName);
+    };
+
+    if (socket.isConnected) {
+      doJoin();
+    } else {
+      const origOnConnect = socket.callbacks.onConnect;
+      socket.callbacks.onConnect = () => {
+        if (origOnConnect) origOnConnect();
+        doJoin();
+      };
+    }
+  } else {
+    // Normal launch: open clean start modal
+    openGameStartModal('ai');
+  }
 });

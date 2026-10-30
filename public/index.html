@@ -36,22 +36,15 @@
       </div>
     </div>
 
-    <div class="testphase-badge" id="headerTestphaseBadge" title="Entwickler- & Trainingsmodus permanent aktiv">
-      <span class="icon">🛠️</span>
-      <span>Testphase / Trainingsmodus (Admin aktiv)</span>
-    </div>
-
     <button class="btn-rulebook" id="btnHeaderRulebook" title="FIDE Schach-Regelbuch öffnen">
       <span>📖</span>
       <span>Regeln</span>
     </button>
 
-    <button class="btn-admin-training" id="btnHeaderAdminTraining" title="Admin KI-Trainingszentrum öffnen" style="display: inline-flex;">
-      <span>🤖</span>
-      <span>KI-Trainingszentrum</span>
+    <button class="btn-friend-match" id="btnHeaderPlayFriend" title="Online mit einem Freund auf anderem PC spielen">
+      <span>👥</span>
+      <span>Mit Freund spielen</span>
     </button>
-
-    <span class="admin-status-text active" id="adminStatusText" style="display: none;">Admin-Modus: Aktiviert</span>
 
     <div class="header-status">
       <div class="status-indicator">
@@ -93,32 +86,6 @@
       <!-- Canvas Board Container (Square & HiDPI Aware) -->
       <div class="canvas-wrapper">
         <canvas id="chessCanvas" width="800" height="800"></canvas>
-
-        <!-- Compact Minimizable Training Dashboard (Shown during Bot-vs-Bot Training) -->
-        <div class="compact-training-dashboard" id="compactTrainingDashboard">
-          <div class="compact-training-header">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div class="status-dot" style="background: #A3E635; box-shadow: 0 0 8px #A3E635;"></div>
-              <strong id="compactRoundText" style="font-size: 0.85rem; color: #E9D5FF;">Partie 1 von 10</strong>
-            </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <button class="compact-btn-toggle" id="btnToggleCompactTrain" title="Minimieren / Erweitern">–</button>
-              <button class="compact-btn-cancel" id="btnCompactCancel" title="Training abbrechen">⏹️ Stop</button>
-            </div>
-          </div>
-
-          <div class="compact-training-body" id="compactTrainingBody">
-            <div class="progress-bar-bg" style="height: 6px; margin: 4px 0 8px 0;">
-              <div class="progress-bar-fill" id="compactProgressFill" style="width: 0%; background: linear-gradient(90deg, #7C3AED, #A3E635);"></div>
-            </div>
-            <div class="compact-scoreboard">
-              <span>🎓 Trainer: <strong id="compactScoreTrainer" style="color: #60A5FA;">0</strong></span>
-              <span>🤖 KI: <strong id="compactScoreRoyale" style="color: #A78BFA;">0</strong></span>
-              <span>🤝 Remis: <strong id="compactScoreDraws" style="color: var(--accent-gold);">0</strong></span>
-            </div>
-            <div class="compact-log" id="compactLogText">Training initialisiert...</div>
-          </div>
-        </div>
       </div>
 
       <!-- Player / White Player Card -->
@@ -205,12 +172,6 @@
           </svg>
           Züge
         </button>
-        <button class="tab-btn" data-tab="tabAiTrain">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-          </svg>
-          KI-Labor
-        </button>
         <button class="tab-btn" data-tab="tabLeaderboard">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M18 20V10M12 20V4M6 20v-6"/>
@@ -232,7 +193,7 @@
             <select class="select-custom" id="gameModeSelect">
               <option value="ai">Gegen eigenständige KI</option>
               <option value="pass_and_play">Pass & Play (Lokal 2 Spieler)</option>
-              <option value="multiplayer">Online Multiplayer (WebSocket)</option>
+              <option value="multiplayer">Online Multiplayer (Freund / WebSocket)</option>
             </select>
           </div>
 
@@ -255,23 +216,49 @@
           <div id="multiSettingsBox" style="display: none; margin-top: 14px;">
             <div class="form-group">
               <label class="form-label">Dein Spielername</label>
-              <input type="text" class="input-custom" id="multiPlayerName" value="Meister_Weiß" placeholder="Name">
+              <input type="text" class="input-custom" id="multiPlayerName" value="Jeremy" placeholder="Dein Name">
             </div>
 
-            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-              <button class="btn-primary" id="btnQuickMatch">Schnelles Match</button>
-              <button class="btn-secondary" id="btnCreateRoom">Raum erstellen</button>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+              <button class="btn-primary" id="btnCreateRoom" style="background: linear-gradient(135deg, #D6A84F, #B8860B); color: #000; font-weight: 700;">
+                👥 Raum erstellen & Einladungs-Link kopieren
+              </button>
             </div>
 
-            <div class="form-group" style="margin-top: 10px;">
-              <label class="form-label">Raum-Code beitreten</label>
+            <!-- Active Room Info Card -->
+            <div class="active-room-box" id="activeRoomBox" style="display: none; background: rgba(214, 168, 79, 0.08); border: 1px solid rgba(214, 168, 79, 0.35); border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Dein Raum-Code:</span>
+                <span class="active-room-code" id="displayRoomCode" style="font-size: 1.25rem; font-weight: 800; color: var(--accent-gold); letter-spacing: 2px;">------</span>
+              </div>
+              <p style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 8px; line-height: 1.4;">
+                Sende den Link deinem Kumpel. Sobald er beitritt, startet das Match automatisch!
+              </p>
+              <button class="btn-secondary" id="btnCopyInviteLink" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 600;">
+                <span>📋</span>
+                <span id="copyInviteText">Einladungs-Link kopieren</span>
+              </button>
+              <div id="multiWaitingPulse" style="display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--accent-gold); margin-top: 8px;">
+                <div class="status-dot" style="animation: pulse 1.5s infinite;"></div>
+                <span>Warte auf Mitspieler...</span>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 6px;">
+              <label class="form-label">Einem bestehenden Raum beitreten</label>
               <div style="display: flex; gap: 8px;">
-                <input type="text" class="input-custom" id="joinRoomInput" placeholder="z. B. 8K2L9A">
+                <input type="text" class="input-custom" id="joinRoomInput" placeholder="z. B. 8K2L9A" style="text-transform: uppercase;">
                 <button class="btn-secondary" id="btnJoinRoom" style="width: auto; padding: 0 16px;">Beitreten</button>
               </div>
             </div>
 
-            <div id="multiStatus" style="font-size: 0.8rem; color: var(--accent-gold); margin-top: 8px;"></div>
+            <div style="margin-top: 10px;">
+              <button class="btn-secondary" id="btnQuickMatch" style="width: 100%; font-size: 0.8rem; padding: 7px;">
+                ⚡ Zufälliges Online-Match suchen
+              </button>
+            </div>
+
+            <div id="multiStatus" style="font-size: 0.8rem; color: var(--accent-gold); margin-top: 8px; line-height: 1.4;"></div>
           </div>
         </div>
 
@@ -347,87 +334,7 @@
         </div>
       </div>
 
-      <!-- Tab 3: AI Training & Reinforcement Learning Lab -->
-      <div class="tab-content" id="tabAiTrain">
-        <div class="card-box">
-          <div class="card-title">
-            <span>Reinforcement Learning</span>
-            <span class="player-title" style="background: var(--accent-green); color: #000;">AUTONOM</span>
-          </div>
-          <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.4;">
-            Eigenständiges Selbstspiel (Self-Play) mit Temporal Difference (TD) Reward-Propagation und dynamischer Gewichtsoptimierung ohne externe APIs.
-          </p>
-
-          <div class="form-group">
-            <label class="form-label">Partien simulieren & trainieren</label>
-            <div style="display: flex; gap: 8px;">
-              <select class="select-custom" id="trainGamesInput" style="flex: 1;">
-                <option value="2">2 Partien (Schnelltest)</option>
-                <option value="5" selected>5 Partien</option>
-                <option value="15">15 Partien</option>
-                <option value="50">50 Partien (Intensiv)</option>
-              </select>
-              <button class="btn-primary" id="btnStartTraining" style="width: auto; padding: 0 16px;">Trainieren</button>
-            </div>
-          </div>
-
-          <div style="margin-top: 14px;">
-            <div class="rl-meter-header">
-              <span id="trainStatusText">Bereit zum Training</span>
-            </div>
-            <div class="progress-bar-bg" style="margin-top: 6px;">
-              <div class="progress-bar-fill" id="trainProgressFill" style="width: 0%;"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card-box">
-          <div class="card-title">
-            <span>Aktuelle Bewertungs-Gewichte</span>
-            <span id="policySizeBadge" style="font-size: 0.75rem; color: var(--accent-gold);">0 Stellungen</span>
-          </div>
-
-          <div class="rl-meter-group">
-            <div class="rl-meter">
-              <div class="rl-meter-header">
-                <span>Material-Gewichtung</span>
-                <strong id="weightMaterial">1.00</strong>
-              </div>
-            </div>
-            <div class="rl-meter">
-              <div class="rl-meter-header">
-                <span>Positionstabellen (PST)</span>
-                <strong id="weightPst">1.00</strong>
-              </div>
-            </div>
-            <div class="rl-meter">
-              <div class="rl-meter-header">
-                <span>Mobilität & Spielfluss</span>
-                <strong id="weightMobility">0.12</strong>
-              </div>
-            </div>
-            <div class="rl-meter">
-              <div class="rl-meter-header">
-                <span>Königssicherheit</span>
-                <strong id="weightKing">0.25</strong>
-              </div>
-            </div>
-            <div class="rl-meter">
-              <div class="rl-meter-header">
-                <span>Zentrumskontrolle</span>
-                <strong id="weightCenter">0.15</strong>
-              </div>
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 8px; margin-top: 16px;">
-            <button class="btn-secondary" id="btnExportWeights">Gewichte Exportieren</button>
-            <button class="btn-secondary" id="btnResetWeights" style="border-color: rgba(220,50,50,0.4); color: #E57373;">Zurücksetzen</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab 4: Tiered Regional Leaderboards -->
+      <!-- Tab 3: Tiered Regional Leaderboards -->
       <div class="tab-content" id="tabLeaderboard">
         <div class="card-box">
           <div class="card-title">
@@ -460,34 +367,101 @@
 
   </main>
 
-  <!-- Modal 0: Schlanker Farbwahl-Dialog vor Spielstart -->
+  <!-- Modal 0: Spielstart-Dialog (KI, Freund Online, Pass & Play) -->
   <div class="modal-overlay" id="gameStartModal">
-    <div class="modal-box modal-start-game">
-      <div class="modal-header-brand">
+    <div class="modal-box modal-start-game" style="max-width: 520px;">
+      <div class="modal-header-brand" style="display: flex; justify-content: space-between; align-items: flex-start;">
         <div>
-          <div class="modal-title" style="margin-bottom: 4px; font-size: 1.3rem;">⚔️ Partie Starten</div>
-          <div class="modal-subtitle" style="margin-bottom: 0;">Wähle deine Spielfarbe – das Spiel startet sofort:</div>
+          <div class="modal-title" style="margin-bottom: 4px; font-size: 1.35rem;">⚔️ Partie Starten</div>
+          <div class="modal-subtitle" style="margin-bottom: 0;">Wähle deinen gewünschten Spielmodus:</div>
+        </div>
+        <button class="modal-close-btn" id="btnCloseStartModal" title="Schließen" style="font-size: 1.4rem;">&times;</button>
+      </div>
+
+      <!-- Mode selection pills -->
+      <div class="start-mode-tabs" style="display: flex; gap: 6px; margin-top: 14px; background: rgba(0,0,0,0.3); padding: 4px; border-radius: 8px; border: 1px solid var(--border-subtle);">
+        <button class="start-mode-pill active" id="pillModeAi" type="button">
+          🤖 Gegen KI
+        </button>
+        <button class="start-mode-pill" id="pillModeFriend" type="button">
+          👥 Mit Freund (Online)
+        </button>
+        <button class="start-mode-pill" id="pillModePassPlay" type="button">
+          ⚔️ Pass & Play
+        </button>
+      </div>
+
+      <!-- Pane 1: AI (Color Options) -->
+      <div class="start-mode-pane active" id="paneModeAi" style="margin-top: 16px;">
+        <div style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 12px; text-align: center;">
+          Wähle deine Spielfarbe gegen die lernende Royale KI:
+        </div>
+        <div class="start-color-options">
+          <button class="start-color-card" data-color="w" id="btnChooseWhite" type="button">
+            <div class="color-circle circle-white">♔</div>
+            <div class="color-title">Weiß spielen</div>
+            <div class="color-desc">Du ziehst zuerst</div>
+          </button>
+          <button class="start-color-card" data-color="random" id="btnChooseRandom" type="button">
+            <div class="color-circle circle-random">🎲</div>
+            <div class="color-title">Zufall</div>
+            <div class="color-desc">50% Weiß / Schwarz</div>
+          </button>
+          <button class="start-color-card" data-color="b" id="btnChooseBlack" type="button">
+            <div class="color-circle circle-black">♚</div>
+            <div class="color-title">Schwarz spielen</div>
+            <div class="color-desc">Antwortet auf Weiß</div>
+          </button>
         </div>
       </div>
 
-      <!-- Color Options (Weiß spielen, Zufall, Schwarz spielen) -->
-      <div class="start-color-options" style="margin-top: 16px;">
-        <button class="start-color-card" data-color="w" id="btnChooseWhite" type="button">
-          <div class="color-circle circle-white">♔</div>
-          <div class="color-title">Weiß spielen</div>
-          <div class="color-desc">Du ziehst zuerst</div>
-        </button>
-        <button class="start-color-card" data-color="random" id="btnChooseRandom" type="button">
-          <div class="color-circle circle-random">🎲</div>
-          <div class="color-title">Zufall</div>
-          <div class="color-desc">50% Weiß / Schwarz</div>
-        </button>
-        <button class="start-color-card" data-color="b" id="btnChooseBlack" type="button">
-          <div class="color-circle circle-black">♚</div>
-          <div class="color-title">Schwarz spielen</div>
-          <div class="color-desc">Antwortet auf Weiß</div>
+      <!-- Pane 2: Friend Online Match -->
+      <div class="start-mode-pane" id="paneModeFriend" style="display: none; margin-top: 16px; flex-direction: column; gap: 14px;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">Dein Spielername:</label>
+          <input type="text" class="input-custom" id="startModalPlayerName" value="Jeremy" placeholder="Dein Name">
+        </div>
+
+        <!-- Create Room Option -->
+        <div style="background: rgba(214, 168, 79, 0.08); border: 1.5px solid rgba(214, 168, 79, 0.35); border-radius: 8px; padding: 14px;">
+          <div style="font-weight: 700; color: var(--accent-gold); font-size: 0.95rem; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+            <span>🔗</span>
+            <span>Option A: Raum erstellen & Link teilen</span>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.4;">
+            Erstellt sofort einen privaten Raum und kopiert den Einladungs-Link. Dein Kumpel muss den Link nur auf seinem PC im Browser öffnen!
+          </p>
+          <button class="btn-primary" id="btnModalCreateFriendRoom" style="width: 100%; font-weight: 700; background: linear-gradient(135deg, #D6A84F, #B8860B); color: #000;">
+            👥 Raum erstellen & Einladungs-Link kopieren
+          </button>
+        </div>
+
+        <!-- Join Room Option -->
+        <div style="background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 14px;">
+          <div style="font-weight: 700; color: var(--text-primary); font-size: 0.95rem; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+            <span>🔑</span>
+            <span>Option B: Raum-Code deines Freundes eingeben</span>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.4;">
+            Hat dein Freund bereits einen Raum erstellt? Gib seinen 6-stelligen Code ein:
+          </p>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" class="input-custom" id="modalJoinRoomInput" placeholder="z. B. 8K2L9A" style="text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700;">
+            <button class="btn-secondary" id="btnModalJoinRoom" style="width: auto; padding: 0 20px; font-weight: 600;">Beitreten</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pane 3: Pass & Play -->
+      <div class="start-mode-pane" id="paneModePassPlay" style="display: none; margin-top: 16px; flex-direction: column; gap: 14px; text-align: center;">
+        <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; padding: 10px 0;">
+          Spiele mit einem Freund lokal am selben Bildschirm. Nach jedem Zug wechseln die Uhren und ihr könnt abwechselnd ziehen.
+        </div>
+        <button class="btn-primary" id="btnStartPassPlay" style="width: 100%; font-weight: 700; padding: 12px;">
+          ⚔️ Lokales Spiel starten
         </button>
       </div>
+
     </div>
   </div>
 
@@ -738,89 +712,7 @@
     </div>
   </div>
 
-  <!-- Modal 4: Admin-Trainingszentrum (Trainer-Bot vs. Royale KI Engine) -->
-  <div class="modal-overlay" id="adminTrainingModal">
-    <div class="modal-box modal-admin-training">
-      <div class="rulebook-header">
-        <div class="rulebook-header-title">
-          <span style="font-size: 1.8rem;">🤖</span>
-          <div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div class="modal-title" style="margin-bottom: 0; text-align: left;">Admin KI-Trainingszentrum</div>
-              <span class="admin-badge">ADMIN EXKLUSIV</span>
-            </div>
-            <div class="modal-subtitle" style="margin-bottom: 0; text-align: left; font-size: 0.8rem;">
-              Autonome Trainingsschleife: Großmeister-Trainer vs. Royale KI Engine
-            </div>
-          </div>
-        </div>
-        <button class="modal-close-btn" id="btnCloseAdminTraining" title="Schließen">&times;</button>
-      </div>
 
-      <!-- Mode selection grid -->
-      <div class="admin-mode-grid">
-        <!-- Mode A -->
-        <div class="admin-card">
-          <div class="admin-card-title">
-            <span>Modus A: Mensch trainiert KI</span>
-            <span style="font-size: 1.1rem;">👤 ➔ 🤖</span>
-          </div>
-          <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">
-            Spiele selbst als Lehrmeister direkt auf dem Brett. Nach Spielende lernt die Royale KI weltweit über Firestore aus deinen Zügen.
-          </p>
-          <div style="font-size: 0.75rem; color: var(--accent-gold); background: rgba(214, 168, 79, 0.08); padding: 8px; border-radius: 4px; margin-top: auto; margin-bottom: 10px;">
-            🛡️ Gilt als unranked Trainingsspiel (kein ELO-Farming, 1500 ELO geschützt).
-          </div>
-          <button class="btn-secondary" id="btnAdminModeA">Jetzt manuell trainieren</button>
-        </div>
-
-        <!-- Mode B -->
-        <div class="admin-card featured">
-          <div class="admin-card-title">
-            <span>Modus B: Profi-Trainer trainiert KI</span>
-            <span style="font-size: 1.1rem;">🎓 ➔ 🤖</span>
-          </div>
-          <p style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.4;">
-            Autonomes Bot-vs-Bot Training: Eine fehlerfreie Minimax-Engine (Tiefe 3–4 mit PST) spielt Serien gegen die Royale KI. Nach jedem Spiel wird der Zugverlauf in Firestore persistiert.
-          </p>
-
-          <!-- Settings for Mode B -->
-          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 4px;">
-            <div>
-              <label class="form-label" style="margin-bottom: 6px;">Rundenanzahl:</label>
-              <div class="admin-round-btn-group">
-                <button class="admin-round-btn" data-rounds="1">1</button>
-                <button class="admin-round-btn" data-rounds="5">5</button>
-                <button class="admin-round-btn active" data-rounds="10">10</button>
-                <button class="admin-round-btn" data-rounds="50">50</button>
-                <button class="admin-round-btn" data-rounds="100">100</button>
-                <input type="number" id="adminCustomRounds" value="10" min="1" max="500" class="input-custom" style="width: 70px; padding: 4px 8px; font-size: 0.8rem; text-align: center;">
-              </div>
-            </div>
-
-            <div>
-              <label class="form-label" style="margin-bottom: 6px;">Visualisierungs-Modus:</label>
-              <div class="admin-vis-group">
-                <label class="admin-radio-label">
-                  <input type="radio" name="adminVisMode" value="live" checked>
-                  <span>👁️ Live zuschauen (300ms Delay)</span>
-                </label>
-                <label class="admin-radio-label">
-                  <input type="radio" name="adminVisMode" value="fast">
-                  <span>⚡ Hintergrund-Simulation (Max. Speed)</span>
-                </label>
-              </div>
-            </div>
-
-            <button class="btn-primary" id="btnStartBotTraining" style="background: linear-gradient(135deg, #7C3AED, #9333EA); border: none; margin-top: 6px;">
-              ▶️ Training Starten
-            </button>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </div>
 
   <!-- Firebase SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>

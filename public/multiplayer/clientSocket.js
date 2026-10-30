@@ -78,13 +78,23 @@
 
         case 'room_created': {
           this.currentRoom = msg.roomId;
-          this.playerColor = msg.color;
+          this.playerColor = msg.color || 'w';
           if (this.callbacks.onRoomCreated) this.callbacks.onRoomCreated(msg);
+          break;
+        }
+
+        case 'room_joined': {
+          this.currentRoom = msg.roomId;
+          this.playerColor = msg.color || 'b';
+          if (this.callbacks.onRoomJoined) this.callbacks.onRoomJoined(msg);
           break;
         }
 
         case 'match_start': {
           this.currentRoom = msg.roomId;
+          if (msg.yourColor && msg.yourColor !== 'spectator') {
+            this.playerColor = msg.yourColor;
+          }
           if (this.callbacks.onMatchStart) this.callbacks.onMatchStart(msg);
           break;
         }

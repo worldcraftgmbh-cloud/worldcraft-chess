@@ -273,16 +273,50 @@ wss.on('connection', (ws) => {
           return;
         }
 
+        const assignedColor = room.white.ws === socket ? 'w' : 'b';
+        socket.send(JSON.stringify({
+          type: 'room_joined',
+          roomId,
+          color: assignedColor
+        }));
+
         // Both players are present: START MATCH
         if (room.white && room.black) {
-          room.broadcast({
+          // Send to White player
+          room.white.ws.send(JSON.stringify({
             type: 'match_start',
             roomId,
+            yourColor: 'w',
             white: { id: room.white.playerId, name: room.white.name, rating: room.white.rating },
             black: { id: room.black.playerId, name: room.black.name, rating: room.black.rating },
             fen: room.game.getFen(),
             timeControl: room.timeControl
+          }));
+
+          // Send to Black player
+          room.black.ws.send(JSON.stringify({
+            type: 'match_start',
+            roomId,
+            yourColor: 'b',
+            white: { id: room.white.playerId, name: room.white.name, rating: room.white.rating },
+            black: { id: room.black.playerId, name: room.black.name, rating: room.black.rating },
+            fen: room.game.getFen(),
+            timeControl: room.timeControl
+          }));
+
+          // Send to Spectators if any
+          room.spectators.forEach(spec => {
+            spec.send(JSON.stringify({
+              type: 'match_start',
+              roomId,
+              yourColor: 'spectator',
+              white: { id: room.white.playerId, name: room.white.name, rating: room.white.rating },
+              black: { id: room.black.playerId, name: room.black.name, rating: room.black.rating },
+              fen: room.game.getFen(),
+              timeControl: room.timeControl
+            }));
           });
+
           room.startClocks();
         }
         break;
@@ -405,14 +439,26 @@ wss.on('connection', (ws) => {
 
           currentRoomId = roomId;
 
-          room.broadcast({
+          room.white.ws.send(JSON.stringify({
             type: 'match_start',
             roomId,
+            yourColor: 'w',
             white: { id: room.white.playerId, name: room.white.name, rating: room.white.rating },
             black: { id: room.black.playerId, name: room.black.name, rating: room.black.rating },
             fen: room.game.getFen(),
             timeControl: room.timeControl
-          });
+          }));
+
+          room.black.ws.send(JSON.stringify({
+            type: 'match_start',
+            roomId,
+            yourColor: 'b',
+            white: { id: room.white.playerId, name: room.white.name, rating: room.white.rating },
+            black: { id: room.black.playerId, name: room.black.name, rating: room.black.rating },
+            fen: room.game.getFen(),
+            timeControl: room.timeControl
+          }));
+
           room.startClocks();
         } else {
           quickQueue.push(playerEntry);
